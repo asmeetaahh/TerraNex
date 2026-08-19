@@ -14,19 +14,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query
 
-from app.core.errors import NotImplementedYetError
 from app.schemas.advisory import AdvisoryList
 from app.schemas.analysis import AnalysisRun, AnalysisRunList, FarmDashboard
 from app.schemas.enums import AdvisoryCategory, AdvisoryPriority
 from app.schemas.risk import DiseaseRisk, WaterRisk, WeatherRisk
 from app.schemas.vegetation import CropHealth
+from app.services import analysis_service
 
 router = APIRouter(tags=["analysis"])
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
-
-_STEP_ENGINE = "Step 6-7 (risk engine and AI)"
-_STEP_READ = "Step 4 (persistence)"
 
 # Projections all fail the same two ways.
 _PROJECTION_ERRORS = {404: {"description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"}}
@@ -66,7 +63,7 @@ async def run_analysis(
         bool, Query(description="Bypass the cache and recompute from scratch.")
     ] = False,
 ) -> AnalysisRun:
-    raise NotImplementedYetError("Farm analysis", step=_STEP_ENGINE)
+    return analysis_service.run_analysis(farm_id, force_refresh=force_refresh)
 
 
 @router.get(
@@ -77,7 +74,7 @@ async def run_analysis(
     responses=_PROJECTION_ERRORS,
 )
 async def get_latest_analysis(farm_id: FarmId) -> AnalysisRun:
-    raise NotImplementedYetError("Latest analysis retrieval", step=_STEP_READ)
+    return analysis_service.latest_analysis(farm_id)
 
 
 @router.get(
@@ -92,7 +89,7 @@ async def list_analysis_runs(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> AnalysisRunList:
-    raise NotImplementedYetError("Analysis history", step=_STEP_READ)
+    return analysis_service.list_runs(farm_id, page=page, page_size=page_size)
 
 
 @router.get(
@@ -106,7 +103,7 @@ async def list_analysis_runs(
 async def get_analysis_run(
     run_id: Annotated[UUID, Path(description="Analysis run identifier.")],
 ) -> AnalysisRun:
-    raise NotImplementedYetError("Analysis run retrieval", step=_STEP_READ)
+    return analysis_service.get_run(run_id)
 
 
 # --------------------------------------------------------------------------
@@ -128,7 +125,7 @@ async def get_analysis_run(
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
 async def get_dashboard(farm_id: FarmId) -> FarmDashboard:
-    raise NotImplementedYetError("Farm dashboard", step=_STEP_READ)
+    return analysis_service.dashboard(farm_id)
 
 
 # --------------------------------------------------------------------------
@@ -144,7 +141,7 @@ async def get_dashboard(farm_id: FarmId) -> FarmDashboard:
     responses=_PROJECTION_ERRORS,
 )
 async def get_weather_risk(farm_id: FarmId) -> WeatherRisk:
-    raise NotImplementedYetError("Weather risk", step=_STEP_ENGINE)
+    return analysis_service.weather_risk(farm_id)
 
 
 @router.get(
@@ -158,7 +155,7 @@ async def get_weather_risk(farm_id: FarmId) -> WeatherRisk:
     responses=_PROJECTION_ERRORS,
 )
 async def get_water_risk(farm_id: FarmId) -> WaterRisk:
-    raise NotImplementedYetError("Water risk", step=_STEP_ENGINE)
+    return analysis_service.water_risk(farm_id)
 
 
 @router.get(
@@ -172,7 +169,7 @@ async def get_water_risk(farm_id: FarmId) -> WaterRisk:
     responses=_PROJECTION_ERRORS,
 )
 async def get_disease_risk(farm_id: FarmId) -> DiseaseRisk:
-    raise NotImplementedYetError("Disease risk", step=_STEP_ENGINE)
+    return analysis_service.disease_risk(farm_id)
 
 
 @router.get(
@@ -185,7 +182,7 @@ async def get_disease_risk(farm_id: FarmId) -> DiseaseRisk:
     responses=_PROJECTION_ERRORS,
 )
 async def get_crop_health(farm_id: FarmId) -> CropHealth:
-    raise NotImplementedYetError("Crop health", step=_STEP_ENGINE)
+    return analysis_service.crop_health(farm_id)
 
 
 @router.get(
@@ -206,4 +203,11 @@ async def list_advisories(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> AdvisoryList:
-    raise NotImplementedYetError("Advisories", step=_STEP_ENGINE)
+    return analysis_service.advisories(
+        farm_id,
+        category=category,
+        priority=priority,
+        include_dismissed=include_dismissed,
+        page=page,
+        page_size=page_size,
+    )

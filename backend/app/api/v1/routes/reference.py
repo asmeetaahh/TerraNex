@@ -9,10 +9,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.core.errors import NotImplementedYetError
 from app.schemas.crop import CropList
 from app.schemas.enums import CropCategory, EnumCatalogResponse, Season, build_enum_catalog
 from app.schemas.location import LocationList
+from app.services import reference_service
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -46,7 +46,9 @@ async def list_crops(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> CropList:
-    raise NotImplementedYetError("Crop catalog", step="Step 3 (seeded fixtures)")
+    return reference_service.list_crops(
+        category=category, season=season, page=page, page_size=page_size
+    )
 
 
 @router.get(
@@ -63,4 +65,4 @@ async def search_locations(
     q: Annotated[str, Query(min_length=2, max_length=120, description="Place name to search.")],
     limit: Annotated[int, Query(ge=1, le=25)] = 10,
 ) -> LocationList:
-    raise NotImplementedYetError("Location geocoding", step="Step 5 (real providers)")
+    return reference_service.search_locations(query=q, limit=limit)

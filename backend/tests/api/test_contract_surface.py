@@ -1,13 +1,10 @@
-"""Guarantees the whole published contract must uphold.
+"""Guarantees the whole published contract must uphold, regardless of phase.
 
-Step 2 publishes every MVP route with its final request and response models, while
-most implementations land later. These tests assert the *contract-level* promises the
-frontend depends on today:
+These assertions are about the *envelope and the edges*, not about any endpoint's
+behaviour: validation runs before handlers, errors always look the same, correlation
+works on failure paths, and unknown resources 404 rather than 500.
 
-* every scaffolded route answers 501 in the standard error envelope,
-* request validation happens before the 501, with the same envelope,
-* correlation headers work everywhere, not just on health,
-* the endpoints that ARE implemented really work.
+Endpoint behaviour lives in the per-area test modules.
 """
 
 import io
@@ -15,119 +12,97 @@ import io
 import pytest
 from httpx import AsyncClient
 
-# (method, path, json_body) — bodies are valid, so a 501 proves the route is reached
-# rather than rejected by validation.
-FARM_ID = "11111111-1111-4111-8111-111111111111"
-CROP_ID = "22222222-2222-4222-8222-222222222222"
-RUN_ID = "33333333-3333-4333-8333-333333333333"
-IMAGE_ID = "44444444-4444-4444-8444-444444444444"
+MISSING_FARM = "11111111-1111-4111-8111-111111111111"
+MISSING_CROP = "22222222-2222-4222-8222-222222222222"
+MISSING_RUN = "33333333-3333-4333-8333-333333333333"
+MISSING_IMAGE = "44444444-4444-4444-8444-444444444444"
 
-VALID_FARM = {"name": "North Field", "latitude": -1.2921, "longitude": 36.8219}
-VALID_FARM_CROP = {"crop_id": CROP_ID, "growth_stage": "vegetative"}
-
-SCAFFOLDED_ROUTES = [
-    ("GET", "/reference/crops", None),
-    ("GET", "/reference/locations?q=nairobi", None),
-    ("POST", "/farms", VALID_FARM),
-    ("GET", "/farms", None),
-    ("GET", f"/farms/{FARM_ID}", None),
-    ("PATCH", f"/farms/{FARM_ID}", {"name": "Renamed"}),
-    ("DELETE", f"/farms/{FARM_ID}", None),
-    ("POST", f"/farms/{FARM_ID}/crops", VALID_FARM_CROP),
-    ("GET", f"/farms/{FARM_ID}/crops", None),
-    ("PATCH", f"/farms/{FARM_ID}/crops/{CROP_ID}", {"growth_stage": "flowering"}),
-    ("DELETE", f"/farms/{FARM_ID}/crops/{CROP_ID}", None),
-    ("GET", f"/farms/{FARM_ID}/weather", None),
-    ("GET", f"/farms/{FARM_ID}/soil", None),
-    ("GET", f"/farms/{FARM_ID}/vegetation", None),
-    ("POST", f"/farms/{FARM_ID}/analysis", None),
-    ("GET", f"/farms/{FARM_ID}/analysis/latest", None),
-    ("GET", f"/farms/{FARM_ID}/analysis", None),
-    ("GET", f"/analysis/{RUN_ID}", None),
-    ("GET", f"/farms/{FARM_ID}/dashboard", None),
-    ("GET", f"/farms/{FARM_ID}/risks/weather", None),
-    ("GET", f"/farms/{FARM_ID}/risks/water", None),
-    ("GET", f"/farms/{FARM_ID}/risks/disease", None),
-    ("GET", f"/farms/{FARM_ID}/health", None),
-    ("GET", f"/farms/{FARM_ID}/advisories", None),
-    ("GET", f"/farms/{FARM_ID}/recommendations/crops", None),
-    ("GET", f"/farms/{FARM_ID}/recommendations/regenerative", None),
-    ("GET", f"/farms/{FARM_ID}/crop-images", None),
-    ("GET", f"/crop-images/{IMAGE_ID}", None),
-    ("POST", f"/crop-images/{IMAGE_ID}/analyze", None),
+# Every route that resolves a farm from the path must 404 on an unknown one, in the
+# standard envelope — never 500, never an empty body.
+FARM_SCOPED_ROUTES = [
+    ("GET", f"/farms/{MISSING_FARM}"),
+    ("PATCH", f"/farms/{MISSING_FARM}"),
+    ("DELETE", f"/farms/{MISSING_FARM}"),
+    ("GET", f"/farms/{MISSING_FARM}/crops"),
+    ("GET", f"/farms/{MISSING_FARM}/weather"),
+    ("GET", f"/farms/{MISSING_FARM}/soil"),
+    ("GET", f"/farms/{MISSING_FARM}/vegetation"),
+    ("POST", f"/farms/{MISSING_FARM}/analysis"),
+    ("GET", f"/farms/{MISSING_FARM}/analysis"),
+    ("GET", f"/farms/{MISSING_FARM}/analysis/latest"),
+    ("GET", f"/farms/{MISSING_FARM}/dashboard"),
+    ("GET", f"/farms/{MISSING_FARM}/risks/weather"),
+    ("GET", f"/farms/{MISSING_FARM}/risks/water"),
+    ("GET", f"/farms/{MISSING_FARM}/risks/disease"),
+    ("GET", f"/farms/{MISSING_FARM}/health"),
+    ("GET", f"/farms/{MISSING_FARM}/advisories"),
+    ("GET", f"/farms/{MISSING_FARM}/recommendations/crops"),
+    ("GET", f"/farms/{MISSING_FARM}/recommendations/regenerative"),
+    ("GET", f"/farms/{MISSING_FARM}/crop-images"),
 ]
 
 
 @pytest.mark.parametrize(
-    ("method", "path", "body"),
-    SCAFFOLDED_ROUTES,
-    ids=[f"{m} {p.split('?')[0]}" for m, p, _ in SCAFFOLDED_ROUTES],
+    ("method", "path"), FARM_SCOPED_ROUTES, ids=[f"{m} {p}" for m, p in FARM_SCOPED_ROUTES]
 )
-async def test_scaffolded_route_returns_501_envelope(
-    client: AsyncClient, api_prefix: str, method: str, path: str, body: dict | None
+async def test_unknown_farm_is_404_envelope(
+    client: AsyncClient, api_prefix: str, method: str, path: str
 ) -> None:
-    resp = await client.request(method, f"{api_prefix}{path}", json=body)
+    resp = await client.request(method, f"{api_prefix}{path}", json={})
 
-    assert resp.status_code == 501, f"{method} {path} returned {resp.status_code}"
+    assert resp.status_code == 404, f"{method} {path} returned {resp.status_code}"
     error = resp.json()["error"]
-    assert error["code"] == "NOT_IMPLEMENTED"
+    assert error["code"] == "FARM_NOT_FOUND"
+    assert error["details"]["farm_id"] == MISSING_FARM
     assert error["request_id"]
-    # The detail names which step will implement it, so the frontend can see progress.
-    assert "feature" in error["details"]
-    assert "planned_step" in error["details"]
 
 
-async def test_upload_route_returns_501_envelope(client: AsyncClient, api_prefix: str) -> None:
-    """Multipart upload is exercised separately — it needs a real file part."""
-    resp = await client.post(
-        f"{api_prefix}/farms/{FARM_ID}/crop-images",
-        files={"file": ("leaf.jpg", io.BytesIO(b"\xff\xd8\xff\xe0fake"), "image/jpeg")},
-    )
-
-    assert resp.status_code == 501
-    assert resp.json()["error"]["code"] == "NOT_IMPLEMENTED"
+async def test_unknown_run_is_404(client: AsyncClient, api_prefix: str) -> None:
+    resp = await client.get(f"{api_prefix}/analysis/{MISSING_RUN}")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NO_ANALYSIS_YET"
 
 
-async def test_every_scaffolded_route_carries_request_id(
-    client: AsyncClient, api_prefix: str
+async def test_unknown_image_is_404(client: AsyncClient, api_prefix: str) -> None:
+    for method, path in [
+        ("GET", f"/crop-images/{MISSING_IMAGE}"),
+        ("POST", f"/crop-images/{MISSING_IMAGE}/analyze"),
+    ]:
+        resp = await client.request(method, f"{api_prefix}{path}")
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "IMAGE_NOT_FOUND"
+
+
+async def test_unknown_crop_on_valid_farm_is_404(
+    client: AsyncClient, api_prefix: str, farm: dict
 ) -> None:
-    """Correlation must work on error paths, not only on successful ones."""
-    resp = await client.get(f"{api_prefix}/farms/{FARM_ID}/dashboard")
-    assert resp.status_code == 501
+    resp = await client.post(
+        f"{api_prefix}/farms/{farm['id']}/crops", json={"crop_id": MISSING_CROP}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "CROP_NOT_FOUND"
+
+
+async def test_error_paths_carry_request_id(client: AsyncClient, api_prefix: str) -> None:
+    """Correlation must work on failures, not only on successes."""
+    resp = await client.get(f"{api_prefix}/farms/{MISSING_FARM}")
     assert resp.headers["X-Request-Id"] == resp.json()["error"]["request_id"]
 
 
 # --------------------------------------------------------------------------
-# Validation runs before the 501 — the request contract is live today
+# The envelope itself
 # --------------------------------------------------------------------------
-
-
-async def test_invalid_body_is_422_not_501(client: AsyncClient, api_prefix: str) -> None:
-    """Latitude 999 must be rejected by the schema, not swallowed by the stub."""
-    resp = await client.post(
-        f"{api_prefix}/farms", json={"name": "X", "latitude": 999, "longitude": 0}
-    )
-
-    assert resp.status_code == 422
-    error = resp.json()["error"]
-    assert error["code"] == "VALIDATION_ERROR"
-    fields = {f["field"] for f in error["details"]["fields"]}
-    assert "latitude" in fields
 
 
 async def test_error_envelope_runtime_keys_are_exactly_four(
     client: AsyncClient, api_prefix: str
 ) -> None:
-    """The wire format is fixed at exactly these four keys.
-
-    Documentation models may be described more precisely over time, but the bytes on
-    the wire must not drift — the frontend parses this shape and nothing else.
-    """
+    """The wire format is fixed at exactly these four keys."""
     validation = await client.post(f"{api_prefix}/farms", json={"name": "X"})
-    not_implemented = await client.get(f"{api_prefix}/farms")
     not_found = await client.get(f"{api_prefix}/nope")
+    farm_missing = await client.get(f"{api_prefix}/farms/{MISSING_FARM}")
 
-    for resp in (validation, not_implemented, not_found):
+    for resp in (validation, not_found, farm_missing):
         body = resp.json()
         assert set(body) == {"error"}
         assert set(body["error"]) == {"code", "message", "details", "request_id"}
@@ -135,7 +110,6 @@ async def test_error_envelope_runtime_keys_are_exactly_four(
 
 
 async def test_validation_details_carry_field_entries(client: AsyncClient, api_prefix: str) -> None:
-    """`details.fields` entries must match the published ErrorField shape."""
     resp = await client.post(
         f"{api_prefix}/farms", json={"name": "X", "latitude": 999, "longitude": 0}
     )
@@ -149,13 +123,27 @@ async def test_validation_details_carry_field_entries(client: AsyncClient, api_p
 
 
 async def test_non_validation_details_stay_free_form(client: AsyncClient, api_prefix: str) -> None:
-    """Non-422 errors keep their own detail objects — `details` is not forced into
-    the validation shape."""
-    resp = await client.get(f"{api_prefix}/farms/{FARM_ID}/dashboard")
+    resp = await client.get(f"{api_prefix}/farms/{MISSING_FARM}")
 
     details = resp.json()["error"]["details"]
     assert "fields" not in details
-    assert details["feature"]
+    assert details["farm_id"]
+
+
+# --------------------------------------------------------------------------
+# Validation runs before any handler
+# --------------------------------------------------------------------------
+
+
+async def test_invalid_body_is_422(client: AsyncClient, api_prefix: str) -> None:
+    resp = await client.post(
+        f"{api_prefix}/farms", json={"name": "X", "latitude": 999, "longitude": 0}
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    fields = {f["field"] for f in resp.json()["error"]["details"]["fields"]}
+    assert "latitude" in fields
 
 
 async def test_missing_required_field_is_422(client: AsyncClient, api_prefix: str) -> None:
@@ -174,18 +162,20 @@ async def test_malformed_uuid_path_param_is_422(client: AsyncClient, api_prefix:
 
 
 async def test_query_param_bounds_are_enforced(client: AsyncClient, api_prefix: str) -> None:
-    resp = await client.get(f"{api_prefix}/reference/locations?q=x")  # min_length is 2
+    resp = await client.get(f"{api_prefix}/reference/locations", params={"q": "x"})
 
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
-async def test_harvest_before_planting_is_rejected(client: AsyncClient, api_prefix: str) -> None:
+async def test_harvest_before_planting_is_rejected(
+    client: AsyncClient, api_prefix: str, farm: dict, maize_crop: dict
+) -> None:
     """A cross-field rule, enforced at the edge rather than deep in a service."""
     resp = await client.post(
-        f"{api_prefix}/farms/{FARM_ID}/crops",
+        f"{api_prefix}/farms/{farm['id']}/crops",
         json={
-            "crop_id": CROP_ID,
+            "crop_id": maize_crop["id"],
             "planting_date": "2026-05-01",
             "expected_harvest_date": "2026-04-01",
         },
@@ -195,28 +185,37 @@ async def test_harvest_before_planting_is_rejected(client: AsyncClient, api_pref
     assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
 
+async def test_upload_rejects_unsupported_media_type(
+    client: AsyncClient, api_prefix: str, farm: dict
+) -> None:
+    resp = await client.post(
+        f"{api_prefix}/farms/{farm['id']}/crop-images",
+        files={"file": ("notes.txt", io.BytesIO(b"not an image"), "text/plain")},
+    )
+
+    assert resp.status_code == 415
+    assert resp.json()["error"]["code"] == "UNSUPPORTED_MEDIA_TYPE"
+
+
 # --------------------------------------------------------------------------
-# Endpoints that are actually implemented
+# Endpoints answered without any farm
 # --------------------------------------------------------------------------
 
 
 async def test_enum_catalog_is_live(client: AsyncClient, api_prefix: str) -> None:
-    """The frontend builds every dropdown from this, so it must work from day one."""
+    """The frontend builds every dropdown from this."""
     resp = await client.get(f"{api_prefix}/reference/enums")
 
     assert resp.status_code == 200
     enums = resp.json()["enums"]
     assert {"irrigation_type", "growth_stage", "advisory_priority", "data_mode"} <= set(enums)
-
-    irrigation = {opt["value"] for opt in enums["irrigation_type"]}
-    assert {"rainfed", "drip", "sprinkler"} <= irrigation
-    assert all("label" in opt for opt in enums["irrigation_type"])
+    assert {"rainfed", "drip", "sprinkler"} <= {o["value"] for o in enums["irrigation_type"]}
+    assert all("label" in o for o in enums["irrigation_type"])
 
 
 async def test_data_mode_enum_exposes_simulated(client: AsyncClient, api_prefix: str) -> None:
-    """`simulated` is how the API admits data is not a real observation. It must be
-    discoverable by the frontend so it can badge such payloads."""
+    """`simulated` is how the API admits data is not a real observation."""
     resp = await client.get(f"{api_prefix}/reference/enums")
 
-    modes = {opt["value"] for opt in resp.json()["enums"]["data_mode"]}
+    modes = {o["value"] for o in resp.json()["enums"]["data_mode"]}
     assert {"live", "cached", "simulated", "unavailable"} == modes

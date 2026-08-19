@@ -10,16 +10,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query, Response, status
 
-from app.core.errors import NotImplementedYetError
 from app.schemas.crop import FarmCrop, FarmCropCreate, FarmCropList, FarmCropUpdate
 from app.schemas.farm import Farm, FarmCreate, FarmList, FarmUpdate
+from app.services import farm_service
 
 router = APIRouter(prefix="/farms", tags=["farms"])
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 FarmCropId = Annotated[UUID, Path(description="Farm-crop (planting) identifier.")]
-
-_STEP = "Step 4 (persistence)"
 
 
 @router.post(
@@ -32,7 +30,7 @@ _STEP = "Step 4 (persistence)"
     ),
 )
 async def create_farm(payload: FarmCreate) -> Farm:
-    raise NotImplementedYetError("Farm registration", step=_STEP)
+    return farm_service.create_farm(payload)
 
 
 @router.get("", response_model=FarmList, summary="List farms")
@@ -40,7 +38,7 @@ async def list_farms(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> FarmList:
-    raise NotImplementedYetError("Farm listing", step=_STEP)
+    return farm_service.list_farms(page=page, page_size=page_size)
 
 
 @router.get(
@@ -50,7 +48,7 @@ async def list_farms(
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
 async def get_farm(farm_id: FarmId) -> Farm:
-    raise NotImplementedYetError("Farm retrieval", step=_STEP)
+    return farm_service.get_farm(farm_id)
 
 
 @router.patch(
@@ -61,7 +59,7 @@ async def get_farm(farm_id: FarmId) -> Farm:
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
 async def update_farm(farm_id: FarmId, payload: FarmUpdate) -> Farm:
-    raise NotImplementedYetError("Farm update", step=_STEP)
+    return farm_service.update_farm(farm_id, payload)
 
 
 @router.delete(
@@ -72,7 +70,8 @@ async def update_farm(farm_id: FarmId, payload: FarmUpdate) -> Farm:
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
 async def delete_farm(farm_id: FarmId) -> Response:
-    raise NotImplementedYetError("Farm deletion", step=_STEP)
+    farm_service.delete_farm(farm_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --------------------------------------------------------------------------
@@ -89,7 +88,7 @@ async def delete_farm(farm_id: FarmId) -> Response:
     responses={404: {"description": "FARM_NOT_FOUND or CROP_NOT_FOUND"}},
 )
 async def add_farm_crop(farm_id: FarmId, payload: FarmCropCreate) -> FarmCrop:
-    raise NotImplementedYetError("Adding a crop to a farm", step=_STEP)
+    return farm_service.add_farm_crop(farm_id, payload)
 
 
 @router.get(
@@ -103,7 +102,7 @@ async def list_farm_crops(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> FarmCropList:
-    raise NotImplementedYetError("Farm crop listing", step=_STEP)
+    return farm_service.list_farm_crops(farm_id, page=page, page_size=page_size)
 
 
 @router.patch(
@@ -116,7 +115,7 @@ async def list_farm_crops(
 async def update_farm_crop(
     farm_id: FarmId, farm_crop_id: FarmCropId, payload: FarmCropUpdate
 ) -> FarmCrop:
-    raise NotImplementedYetError("Farm crop update", step=_STEP)
+    return farm_service.update_farm_crop(farm_id, farm_crop_id, payload)
 
 
 @router.delete(
@@ -126,4 +125,5 @@ async def update_farm_crop(
     responses={404: {"description": "FARM_NOT_FOUND or CROP_NOT_FOUND"}},
 )
 async def delete_farm_crop(farm_id: FarmId, farm_crop_id: FarmCropId) -> Response:
-    raise NotImplementedYetError("Farm crop removal", step=_STEP)
+    farm_service.delete_farm_crop(farm_id, farm_crop_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

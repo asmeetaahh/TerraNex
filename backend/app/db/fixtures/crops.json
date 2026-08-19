@@ -1,0 +1,262 @@
+[
+  {
+    "code": "maize", "name": "Maize", "scientific_name": "Zea mays",
+    "category": "cereal", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 18.0, "optimal_temp_max_c": 32.0,
+    "gdd_to_maturity": 1400, "water_need_mm_season": 600,
+    "ph_min": 5.5, "ph_max": 7.5,
+    "preferred_textures": ["loam", "silt_loam", "sandy_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["grey_leaf_spot", "northern_leaf_blight", "maize_streak_virus"]
+  },
+  {
+    "code": "wheat", "name": "Wheat", "scientific_name": "Triticum aestivum",
+    "category": "cereal", "season": "winter",
+    "base_temp_c": 4.0, "optimal_temp_min_c": 12.0, "optimal_temp_max_c": 25.0,
+    "gdd_to_maturity": 1300, "water_need_mm_season": 450,
+    "ph_min": 6.0, "ph_max": 7.5,
+    "preferred_textures": ["loam", "clay_loam", "silt_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["stripe_rust", "septoria_leaf_blotch", "fusarium_head_blight"]
+  },
+  {
+    "code": "rice", "name": "Rice", "scientific_name": "Oryza sativa",
+    "category": "cereal", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 20.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 1600, "water_need_mm_season": 1200,
+    "ph_min": 5.0, "ph_max": 6.5,
+    "preferred_textures": ["clay", "silty_clay", "clay_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["rice_blast", "bacterial_leaf_blight", "sheath_blight"]
+  },
+  {
+    "code": "sorghum", "name": "Sorghum", "scientific_name": "Sorghum bicolor",
+    "category": "cereal", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 21.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 1300, "water_need_mm_season": 450,
+    "ph_min": 5.5, "ph_max": 7.5,
+    "preferred_textures": ["sandy_loam", "loam", "clay_loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["anthracnose", "grain_mold", "downy_mildew"]
+  },
+  {
+    "code": "pearl_millet", "name": "Pearl millet", "scientific_name": "Pennisetum glaucum",
+    "category": "cereal", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 22.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 1100, "water_need_mm_season": 350,
+    "ph_min": 5.5, "ph_max": 7.0,
+    "preferred_textures": ["sandy_loam", "loamy_sand", "sand"],
+    "drought_tolerance": "high",
+    "common_diseases": ["downy_mildew", "ergot", "smut"]
+  },
+  {
+    "code": "barley", "name": "Barley", "scientific_name": "Hordeum vulgare",
+    "category": "cereal", "season": "winter",
+    "base_temp_c": 4.0, "optimal_temp_min_c": 12.0, "optimal_temp_max_c": 25.0,
+    "gdd_to_maturity": 1200, "water_need_mm_season": 400,
+    "ph_min": 6.0, "ph_max": 7.8,
+    "preferred_textures": ["loam", "clay_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["net_blotch", "powdery_mildew", "scald"]
+  },
+  {
+    "code": "soybean", "name": "Soybean", "scientific_name": "Glycine max",
+    "category": "legume", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 20.0, "optimal_temp_max_c": 30.0,
+    "gdd_to_maturity": 1300, "water_need_mm_season": 500,
+    "ph_min": 6.0, "ph_max": 7.0,
+    "preferred_textures": ["loam", "silt_loam", "clay_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["soybean_rust", "sudden_death_syndrome", "white_mould"]
+  },
+  {
+    "code": "common_bean", "name": "Common bean", "scientific_name": "Phaseolus vulgaris",
+    "category": "legume", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 18.0, "optimal_temp_max_c": 28.0,
+    "gdd_to_maturity": 1100, "water_need_mm_season": 400,
+    "ph_min": 6.0, "ph_max": 7.5,
+    "preferred_textures": ["loam", "sandy_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["anthracnose", "angular_leaf_spot", "common_bacterial_blight"]
+  },
+  {
+    "code": "cowpea", "name": "Cowpea", "scientific_name": "Vigna unguiculata",
+    "category": "legume", "season": "summer",
+    "base_temp_c": 11.0, "optimal_temp_min_c": 20.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 1000, "water_need_mm_season": 300,
+    "ph_min": 5.5, "ph_max": 7.0,
+    "preferred_textures": ["sandy_loam", "loamy_sand", "loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["cowpea_mosaic_virus", "bacterial_blight", "anthracnose"]
+  },
+  {
+    "code": "chickpea", "name": "Chickpea", "scientific_name": "Cicer arietinum",
+    "category": "legume", "season": "winter",
+    "base_temp_c": 5.0, "optimal_temp_min_c": 15.0, "optimal_temp_max_c": 30.0,
+    "gdd_to_maturity": 1200, "water_need_mm_season": 350,
+    "ph_min": 6.0, "ph_max": 8.0,
+    "preferred_textures": ["clay_loam", "loam", "sandy_loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["ascochyta_blight", "fusarium_wilt", "botrytis_grey_mould"]
+  },
+  {
+    "code": "groundnut", "name": "Groundnut", "scientific_name": "Arachis hypogaea",
+    "category": "legume", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 20.0, "optimal_temp_max_c": 30.0,
+    "gdd_to_maturity": 1300, "water_need_mm_season": 500,
+    "ph_min": 5.5, "ph_max": 7.0,
+    "preferred_textures": ["sandy_loam", "loamy_sand"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["early_leaf_spot", "late_leaf_spot", "groundnut_rosette"]
+  },
+  {
+    "code": "lentil", "name": "Lentil", "scientific_name": "Lens culinaris",
+    "category": "legume", "season": "winter",
+    "base_temp_c": 3.0, "optimal_temp_min_c": 15.0, "optimal_temp_max_c": 25.0,
+    "gdd_to_maturity": 1100, "water_need_mm_season": 300,
+    "ph_min": 6.0, "ph_max": 8.0,
+    "preferred_textures": ["loam", "sandy_loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["ascochyta_blight", "rust", "wilt"]
+  },
+  {
+    "code": "pigeonpea", "name": "Pigeonpea", "scientific_name": "Cajanus cajan",
+    "category": "legume", "season": "year_round",
+    "base_temp_c": 12.0, "optimal_temp_min_c": 20.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 1800, "water_need_mm_season": 450,
+    "ph_min": 5.0, "ph_max": 7.0,
+    "preferred_textures": ["loam", "sandy_loam", "clay_loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["fusarium_wilt", "sterility_mosaic", "phytophthora_blight"]
+  },
+  {
+    "code": "sunflower", "name": "Sunflower", "scientific_name": "Helianthus annuus",
+    "category": "oilseed", "season": "summer",
+    "base_temp_c": 8.0, "optimal_temp_min_c": 18.0, "optimal_temp_max_c": 30.0,
+    "gdd_to_maturity": 1300, "water_need_mm_season": 500,
+    "ph_min": 6.0, "ph_max": 7.5,
+    "preferred_textures": ["loam", "clay_loam", "silt_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["downy_mildew", "sclerotinia_head_rot", "rust"]
+  },
+  {
+    "code": "rapeseed", "name": "Rapeseed", "scientific_name": "Brassica napus",
+    "category": "oilseed", "season": "winter",
+    "base_temp_c": 5.0, "optimal_temp_min_c": 12.0, "optimal_temp_max_c": 25.0,
+    "gdd_to_maturity": 1400, "water_need_mm_season": 450,
+    "ph_min": 5.5, "ph_max": 7.5,
+    "preferred_textures": ["loam", "silt_loam", "clay_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["blackleg", "sclerotinia_stem_rot", "clubroot"]
+  },
+  {
+    "code": "sesame", "name": "Sesame", "scientific_name": "Sesamum indicum",
+    "category": "oilseed", "season": "summer",
+    "base_temp_c": 12.0, "optimal_temp_min_c": 25.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 1100, "water_need_mm_season": 350,
+    "ph_min": 5.5, "ph_max": 8.0,
+    "preferred_textures": ["sandy_loam", "loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["bacterial_blight", "phyllody", "charcoal_rot"]
+  },
+  {
+    "code": "potato", "name": "Potato", "scientific_name": "Solanum tuberosum",
+    "category": "tuber", "season": "spring",
+    "base_temp_c": 7.0, "optimal_temp_min_c": 15.0, "optimal_temp_max_c": 22.0,
+    "gdd_to_maturity": 1100, "water_need_mm_season": 500,
+    "ph_min": 5.0, "ph_max": 6.5,
+    "preferred_textures": ["sandy_loam", "loam", "silt_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["late_blight", "early_blight", "blackleg"]
+  },
+  {
+    "code": "sweet_potato", "name": "Sweet potato", "scientific_name": "Ipomoea batatas",
+    "category": "tuber", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 20.0, "optimal_temp_max_c": 30.0,
+    "gdd_to_maturity": 1200, "water_need_mm_season": 450,
+    "ph_min": 5.5, "ph_max": 6.5,
+    "preferred_textures": ["sandy_loam", "loamy_sand", "loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["scurf", "black_rot", "sweet_potato_virus_disease"]
+  },
+  {
+    "code": "cassava", "name": "Cassava", "scientific_name": "Manihot esculenta",
+    "category": "tuber", "season": "year_round",
+    "base_temp_c": 12.0, "optimal_temp_min_c": 25.0, "optimal_temp_max_c": 35.0,
+    "gdd_to_maturity": 2400, "water_need_mm_season": 600,
+    "ph_min": 5.0, "ph_max": 7.0,
+    "preferred_textures": ["sandy_loam", "loam", "loamy_sand"],
+    "drought_tolerance": "high",
+    "common_diseases": ["cassava_mosaic_disease", "cassava_brown_streak", "bacterial_blight"]
+  },
+  {
+    "code": "tomato", "name": "Tomato", "scientific_name": "Solanum lycopersicum",
+    "category": "vegetable", "season": "summer",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 18.0, "optimal_temp_max_c": 27.0,
+    "gdd_to_maturity": 1200, "water_need_mm_season": 550,
+    "ph_min": 6.0, "ph_max": 7.0,
+    "preferred_textures": ["loam", "sandy_loam", "silt_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["late_blight", "early_blight", "bacterial_wilt", "fusarium_wilt"]
+  },
+  {
+    "code": "onion", "name": "Onion", "scientific_name": "Allium cepa",
+    "category": "vegetable", "season": "spring",
+    "base_temp_c": 6.0, "optimal_temp_min_c": 13.0, "optimal_temp_max_c": 24.0,
+    "gdd_to_maturity": 1100, "water_need_mm_season": 450,
+    "ph_min": 6.0, "ph_max": 7.0,
+    "preferred_textures": ["loam", "silt_loam", "sandy_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["purple_blotch", "downy_mildew", "white_rot"]
+  },
+  {
+    "code": "cabbage", "name": "Cabbage", "scientific_name": "Brassica oleracea",
+    "category": "vegetable", "season": "autumn",
+    "base_temp_c": 5.0, "optimal_temp_min_c": 15.0, "optimal_temp_max_c": 22.0,
+    "gdd_to_maturity": 900, "water_need_mm_season": 400,
+    "ph_min": 6.0, "ph_max": 7.5,
+    "preferred_textures": ["loam", "silt_loam", "clay_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["black_rot", "clubroot", "downy_mildew"]
+  },
+  {
+    "code": "banana", "name": "Banana", "scientific_name": "Musa acuminata",
+    "category": "fruit", "season": "year_round",
+    "base_temp_c": 14.0, "optimal_temp_min_c": 22.0, "optimal_temp_max_c": 32.0,
+    "gdd_to_maturity": 3000, "water_need_mm_season": 1200,
+    "ph_min": 5.5, "ph_max": 7.0,
+    "preferred_textures": ["loam", "sandy_loam", "silt_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["panama_disease", "black_sigatoka", "banana_bunchy_top"]
+  },
+  {
+    "code": "coffee", "name": "Coffee", "scientific_name": "Coffea arabica",
+    "category": "fruit", "season": "year_round",
+    "base_temp_c": 10.0, "optimal_temp_min_c": 18.0, "optimal_temp_max_c": 26.0,
+    "gdd_to_maturity": 2500, "water_need_mm_season": 1500,
+    "ph_min": 5.0, "ph_max": 6.5,
+    "preferred_textures": ["loam", "silt_loam", "sandy_loam"],
+    "drought_tolerance": "low",
+    "common_diseases": ["coffee_leaf_rust", "coffee_berry_disease", "coffee_wilt"]
+  },
+  {
+    "code": "cotton", "name": "Cotton", "scientific_name": "Gossypium hirsutum",
+    "category": "fibre", "season": "summer",
+    "base_temp_c": 12.0, "optimal_temp_min_c": 21.0, "optimal_temp_max_c": 32.0,
+    "gdd_to_maturity": 1500, "water_need_mm_season": 700,
+    "ph_min": 5.8, "ph_max": 8.0,
+    "preferred_textures": ["loam", "clay_loam", "sandy_clay_loam"],
+    "drought_tolerance": "moderate",
+    "common_diseases": ["bacterial_blight", "verticillium_wilt", "cotton_leaf_curl"]
+  },
+  {
+    "code": "alfalfa", "name": "Alfalfa", "scientific_name": "Medicago sativa",
+    "category": "forage", "season": "year_round",
+    "base_temp_c": 5.0, "optimal_temp_min_c": 18.0, "optimal_temp_max_c": 28.0,
+    "gdd_to_maturity": 1000, "water_need_mm_season": 800,
+    "ph_min": 6.5, "ph_max": 7.5,
+    "preferred_textures": ["loam", "silt_loam", "clay_loam"],
+    "drought_tolerance": "high",
+    "common_diseases": ["crown_rot", "bacterial_wilt", "anthracnose"]
+  }
+]

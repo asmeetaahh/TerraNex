@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app.db.seed import seed_crops
 from app.schemas.errors import ErrorResponse
 
 logger = get_logger(__name__)
@@ -36,6 +37,11 @@ crop and regenerative-agriculture recommendations, and multimodal crop-image dia
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging(settings.LOG_LEVEL, json_output=settings.APP_ENV != "local")
+
+    # Phase 3: the crop catalog lives in the in-memory store. This moves to a
+    # database migration in the persistence phase.
+    crop_count = seed_crops()
+
     logger.info(
         "startup",
         extra={
@@ -44,6 +50,8 @@ async def lifespan(app: FastAPI):
             "ai_provider": settings.AI_PROVIDER,
             "auth_enabled": settings.ENABLE_AUTH,
             "cors_origins": settings.CORS_ORIGINS,
+            "crops_seeded": crop_count,
+            "data_mode": "simulated",
         },
     )
     yield

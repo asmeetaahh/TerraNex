@@ -13,16 +13,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query
 
-from app.core.errors import NotImplementedYetError
 from app.schemas.soil import SoilProfile
 from app.schemas.vegetation import VegetationSeries
 from app.schemas.weather import WeatherBundle
+from app.services import environment_service
 
 router = APIRouter(prefix="/farms", tags=["environment"])
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 
-_STEP = "Step 5 (real providers)"
 _NOT_FOUND = {404: {"description": "FARM_NOT_FOUND"}}
 
 
@@ -43,7 +42,9 @@ async def get_weather(
     forecast_days: Annotated[int, Query(ge=1, le=16)] = 7,
     history_days: Annotated[int, Query(ge=1, le=90)] = 30,
 ) -> WeatherBundle:
-    raise NotImplementedYetError("Weather data", step=_STEP)
+    return environment_service.weather_for_farm(
+        farm_id, forecast_days=forecast_days, history_days=history_days
+    )
 
 
 @router.get(
@@ -57,7 +58,7 @@ async def get_weather(
     responses=_NOT_FOUND,
 )
 async def get_soil(farm_id: FarmId) -> SoilProfile:
-    raise NotImplementedYetError("Soil data", step=_STEP)
+    return environment_service.soil_for_farm(farm_id)
 
 
 @router.get(
@@ -75,4 +76,4 @@ async def get_vegetation(
     farm_id: FarmId,
     days: Annotated[int, Query(ge=7, le=365)] = 90,
 ) -> VegetationSeries:
-    raise NotImplementedYetError("Vegetation data", step=_STEP)
+    return environment_service.vegetation_for_farm(farm_id, days=days)

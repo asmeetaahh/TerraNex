@@ -11,14 +11,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Path, Query
 
-from app.core.errors import NotImplementedYetError
 from app.schemas.recommendation import CropRecommendationList, RegenerativeRecommendationList
+from app.services import analysis_service
 
 router = APIRouter(prefix="/farms", tags=["recommendations"])
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 
-_STEP = "Step 6-7 (risk engine and AI)"
 _ERRORS = {404: {"description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"}}
 
 
@@ -36,7 +35,7 @@ async def get_crop_recommendations(
     farm_id: FarmId,
     limit: Annotated[int, Query(ge=1, le=25, description="How many to return.")] = 5,
 ) -> CropRecommendationList:
-    raise NotImplementedYetError("Crop recommendations", step=_STEP)
+    return analysis_service.crop_recommendations(farm_id, limit=limit)
 
 
 @router.get(
@@ -53,4 +52,4 @@ async def get_regenerative_recommendations(
     farm_id: FarmId,
     limit: Annotated[int, Query(ge=1, le=25)] = 5,
 ) -> RegenerativeRecommendationList:
-    raise NotImplementedYetError("Regenerative recommendations", step=_STEP)
+    return analysis_service.regenerative_recommendations(farm_id, limit=limit)

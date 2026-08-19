@@ -13,15 +13,13 @@ from uuid import UUID
 from fastapi import APIRouter, File, Form, Path, Query, UploadFile, status
 
 from app.core.config import settings
-from app.core.errors import NotImplementedYetError
 from app.schemas.image import CropImage, CropImageList
+from app.services import image_service
 
 router = APIRouter(tags=["crop-images"])
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 ImageId = Annotated[UUID, Path(description="Crop image identifier.")]
-
-_STEP = "Step 8 (vision)"
 
 
 @router.post(
@@ -54,7 +52,15 @@ async def upload_crop_image(
         bool, Query(description="Run the diagnosis immediately instead of returning pending.")
     ] = False,
 ) -> CropImage:
-    raise NotImplementedYetError("Crop image upload", step=_STEP)
+    return image_service.upload_image(
+        farm_id,
+        data=await file.read(),
+        content_type=file.content_type,
+        filename=file.filename,
+        farm_crop_id=farm_crop_id,
+        note=note,
+        analyze=analyze,
+    )
 
 
 @router.post(
@@ -75,7 +81,7 @@ async def upload_crop_image(
     },
 )
 async def analyze_crop_image(image_id: ImageId) -> CropImage:
-    raise NotImplementedYetError("Crop image diagnosis", step=_STEP)
+    return image_service.analyze_image(image_id)
 
 
 @router.get(
@@ -86,7 +92,7 @@ async def analyze_crop_image(image_id: ImageId) -> CropImage:
     responses={404: {"description": "IMAGE_NOT_FOUND"}},
 )
 async def get_crop_image(image_id: ImageId) -> CropImage:
-    raise NotImplementedYetError("Crop image retrieval", step=_STEP)
+    return image_service.get_image(image_id)
 
 
 @router.get(
@@ -101,4 +107,4 @@ async def list_crop_images(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> CropImageList:
-    raise NotImplementedYetError("Crop image listing", step=_STEP)
+    return image_service.list_images(farm_id, page=page, page_size=page_size)
