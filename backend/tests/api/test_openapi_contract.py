@@ -51,11 +51,26 @@ def test_error_envelope_is_published_in_the_schema(app) -> None:
     assert {"code", "message", "details", "request_id"} <= set(props)
 
 
+def test_validation_field_errors_are_typed_in_the_schema(app) -> None:
+    """`ErrorField` must reach the components so codegen produces a real type for
+    form-error rendering, rather than leaving `details` as an opaque object."""
+    schemas = app.openapi()["components"]["schemas"]
+
+    assert "ErrorField" in schemas, "ErrorField is not emitted; codegen cannot type it"
+    assert "ValidationErrorDetails" in schemas
+
+    assert {"field", "message", "type"} <= set(schemas["ErrorField"]["properties"])
+
+    fields = schemas["ValidationErrorDetails"]["properties"]["fields"]
+    assert fields["items"]["$ref"].endswith("/ErrorField")
+
+    # `details` must still admit arbitrary per-code objects, not only validation errors.
+    variants = schemas["ErrorDetail"]["properties"]["details"]["anyOf"]
+    assert any(v.get("$ref", "").endswith("/ValidationErrorDetails") for v in variants)
+    assert any(v.get("type") == "object" and "$ref" not in v for v in variants)
+
+
 def test_all_routes_are_versioned(app) -> None:
     """Nothing may sit outside /api/v1 — versioning is in the path."""
-    unversioned = [
-        path
-        for path in app.openapi()["paths"]
-        if not path.startswith("/api/v1")
-    ]
+    unversioned = [path for path in app.openapi()["paths"] if not path.startswith("/api/v1")]
     assert not unversioned, f"unversioned routes found: {unversioned}"

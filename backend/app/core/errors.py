@@ -26,6 +26,7 @@ class ErrorCode(StrEnum):
     CROP_NOT_FOUND = "CROP_NOT_FOUND"
     IMAGE_NOT_FOUND = "IMAGE_NOT_FOUND"
     NO_ANALYSIS_YET = "NO_ANALYSIS_YET"
+    ANALYSIS_IN_PROGRESS = "ANALYSIS_IN_PROGRESS"
     CONFLICT = "CONFLICT"
     IMAGE_TOO_LARGE = "IMAGE_TOO_LARGE"
     UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE"
@@ -34,6 +35,7 @@ class ErrorCode(StrEnum):
     AI_INVALID_OUTPUT = "AI_INVALID_OUTPUT"
     RATE_LIMITED = "RATE_LIMITED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
 
 
 class AppError(Exception):
@@ -110,6 +112,12 @@ class ConflictError(AppError):
     http_status = status.HTTP_409_CONFLICT
 
 
+class AnalysisInProgressError(ConflictError):
+    """An analysis is already running for this farm."""
+
+    code = ErrorCode.ANALYSIS_IN_PROGRESS
+
+
 class ImageTooLargeError(AppError):
     """The uploaded image exceeds the size limit."""
 
@@ -150,6 +158,24 @@ class RateLimitedError(AppError):
 
     code = ErrorCode.RATE_LIMITED
     http_status = status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class NotImplementedYetError(AppError):
+    """This endpoint is published in the contract but has no behaviour yet.
+
+    Contract-first scaffolding: the route, its request model and its response model
+    are final and generate correct TypeScript today, while the implementation lands
+    in a later step. Named with a `Yet` suffix to avoid shadowing the builtin.
+    """
+
+    code = ErrorCode.NOT_IMPLEMENTED
+    http_status = status.HTTP_501_NOT_IMPLEMENTED
+
+    def __init__(self, feature: str, *, step: str | None = None) -> None:
+        super().__init__(
+            f"{feature} is not implemented yet.",
+            details={"feature": feature, **({"planned_step": step} if step else {})},
+        )
 
 
 # --------------------------------------------------------------------------
@@ -207,9 +233,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def _validation_error(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         # FastAPI's default 422 body has a different shape. Override it so the
         # frontend needs exactly one error parser, not two.
         fields = [
@@ -229,9 +253,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def _http_error(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = {
             401: ErrorCode.UNAUTHORIZED,
             403: ErrorCode.FORBIDDEN,

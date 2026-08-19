@@ -1,6 +1,1391 @@
 {
   "components": {
     "schemas": {
+      "AIMode": {
+        "description": "Which engine actually produced the narrative in a response.\n\nExposed for the same reason as :class:`~app.schemas.common.DataMode`: a consumer\nmust always be able to tell real model output from a canned or fallback response.",
+        "enum": [
+          "gemini",
+          "mock",
+          "fallback"
+        ],
+        "title": "AIMode",
+        "type": "string"
+      },
+      "Advisory": {
+        "description": "One prioritized, actionable recommendation.",
+        "properties": {
+          "action_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When to act.",
+            "examples": [
+              "within 48 hours"
+            ],
+            "title": "Action Window"
+          },
+          "analysis_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Run Id"
+          },
+          "body": {
+            "description": "What to do, in plain language.",
+            "title": "Body",
+            "type": "string"
+          },
+          "category": {
+            "$ref": "#/components/schemas/AdvisoryCategory"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At"
+          },
+          "farm_id": {
+            "format": "uuid",
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/AdvisoryPriority"
+          },
+          "rationale": {
+            "description": "Why \u2014 cites the computed drivers behind this advisory.",
+            "examples": [
+              "Water balance is \u221234 mm over 30 days and no rain is forecast for 6 days."
+            ],
+            "title": "Rationale",
+            "type": "string"
+          },
+          "title": {
+            "examples": [
+              "Irrigate within 48 hours"
+            ],
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "farm_id",
+          "category",
+          "priority",
+          "title",
+          "body",
+          "rationale",
+          "confidence",
+          "created_at"
+        ],
+        "title": "Advisory",
+        "type": "object"
+      },
+      "AdvisoryCategory": {
+        "enum": [
+          "irrigation",
+          "disease",
+          "pest",
+          "nutrient",
+          "weather",
+          "planting",
+          "harvest",
+          "soil",
+          "regenerative"
+        ],
+        "title": "AdvisoryCategory",
+        "type": "string"
+      },
+      "AdvisoryList": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/advisories`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Advisory"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AdvisoryList",
+        "type": "object"
+      },
+      "AdvisoryPriority": {
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "title": "AdvisoryPriority",
+        "type": "string"
+      },
+      "AnalysisRun": {
+        "description": "A complete, immutable farm analysis.",
+        "properties": {
+          "advisories": {
+            "items": {
+              "$ref": "#/components/schemas/Advisory"
+            },
+            "title": "Advisories",
+            "type": "array"
+          },
+          "ai_mode": {
+            "$ref": "#/components/schemas/AIMode",
+            "description": "Which engine produced the narrative: real model, mock, or deterministic fallback."
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "crop_health": {
+            "$ref": "#/components/schemas/CropHealth"
+          },
+          "crop_recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/CropRecommendation"
+            },
+            "title": "Crop Recommendations",
+            "type": "array"
+          },
+          "degraded_sources": {
+            "description": "Providers that failed or degraded during this run.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Degraded Sources",
+            "type": "array"
+          },
+          "disease_risk": {
+            "$ref": "#/components/schemas/DiseaseRisk"
+          },
+          "duration_ms": {
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "factors": {
+            "description": "Per-factor contributions to the composite, for an explainable UI.",
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "farm_id": {
+            "format": "uuid",
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AI model identifier, or null when no model was used.",
+            "examples": [
+              "gemini-2.5-flash"
+            ],
+            "title": "Model"
+          },
+          "overall_band": {
+            "$ref": "#/components/schemas/ScoreBand"
+          },
+          "overall_health_score": {
+            "description": "Deterministic weighted composite. Not AI-generated.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Overall Health Score",
+            "type": "integer"
+          },
+          "prompt_version": {
+            "description": "Version of the prompt set that produced the narrative fields.",
+            "examples": [
+              "v1"
+            ],
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "regenerative_recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/RegenerativeRecommendation"
+            },
+            "title": "Regenerative Recommendations",
+            "type": "array"
+          },
+          "soil_assessment": {
+            "$ref": "#/components/schemas/SoilAssessment"
+          },
+          "sources": {
+            "description": "Provenance for every input used.",
+            "items": {
+              "$ref": "#/components/schemas/DataSourceMeta"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisStatus"
+          },
+          "summary": {
+            "description": "Two to three sentence headline for the dashboard.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "water_risk": {
+            "$ref": "#/components/schemas/WaterRisk"
+          },
+          "weather_risk": {
+            "$ref": "#/components/schemas/WeatherRisk"
+          }
+        },
+        "required": [
+          "id",
+          "farm_id",
+          "status",
+          "created_at",
+          "duration_ms",
+          "prompt_version",
+          "ai_mode",
+          "overall_health_score",
+          "overall_band",
+          "summary",
+          "weather_risk",
+          "water_risk",
+          "disease_risk",
+          "crop_health",
+          "soil_assessment"
+        ],
+        "title": "AnalysisRun",
+        "type": "object"
+      },
+      "AnalysisRunList": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/analysis`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisRunSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AnalysisRunList",
+        "type": "object"
+      },
+      "AnalysisRunSummary": {
+        "description": "Lightweight run record for history lists and trend charts.",
+        "properties": {
+          "ai_mode": {
+            "$ref": "#/components/schemas/AIMode"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "degraded_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Degraded Sources",
+            "type": "array"
+          },
+          "duration_ms": {
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "farm_id": {
+            "format": "uuid",
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "overall_band": {
+            "$ref": "#/components/schemas/ScoreBand"
+          },
+          "overall_health_score": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Overall Health Score",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisStatus"
+          }
+        },
+        "required": [
+          "id",
+          "farm_id",
+          "status",
+          "created_at",
+          "duration_ms",
+          "overall_health_score",
+          "overall_band",
+          "ai_mode"
+        ],
+        "title": "AnalysisRunSummary",
+        "type": "object"
+      },
+      "AnalysisStatus": {
+        "enum": [
+          "complete",
+          "partial",
+          "failed"
+        ],
+        "title": "AnalysisStatus",
+        "type": "string"
+      },
+      "Body_upload_crop_image_api_v1_farms__farm_id__crop_images_post": {
+        "properties": {
+          "farm_crop_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which planting this image belongs to.",
+            "title": "Farm Crop Id"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "The crop photograph.",
+            "title": "File",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional context for the diagnosis.",
+            "title": "Note"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_crop_image_api_v1_farms__farm_id__crop_images_post",
+        "type": "object"
+      },
+      "Crop": {
+        "description": "A crop in the reference catalog, with the agronomic constants the risk\nengine needs. Seeded from a fixture; never client-writable.",
+        "properties": {
+          "base_temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base temperature for growing-degree-day accumulation.",
+            "title": "Base Temp C"
+          },
+          "category": {
+            "$ref": "#/components/schemas/CropCategory"
+          },
+          "code": {
+            "description": "Stable machine key.",
+            "examples": [
+              "maize"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "common_diseases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Common Diseases",
+            "type": "array"
+          },
+          "drought_tolerance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DroughtTolerance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gdd_to_maturity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Growing degree days from planting to maturity.",
+            "title": "Gdd To Maturity"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "examples": [
+              "Maize"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "optimal_temp_max_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimal Temp Max C"
+          },
+          "optimal_temp_min_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimal Temp Min C"
+          },
+          "ph_max": {
+            "anyOf": [
+              {
+                "maximum": 14.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ph Max"
+          },
+          "ph_min": {
+            "anyOf": [
+              {
+                "maximum": 14.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ph Min"
+          },
+          "preferred_textures": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Preferred Textures",
+            "type": "array"
+          },
+          "scientific_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Zea mays"
+            ],
+            "title": "Scientific Name"
+          },
+          "season": {
+            "$ref": "#/components/schemas/Season"
+          },
+          "water_need_mm_season": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typical seasonal water requirement in mm.",
+            "title": "Water Need Mm Season"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "category",
+          "season"
+        ],
+        "title": "Crop",
+        "type": "object"
+      },
+      "CropCategory": {
+        "enum": [
+          "cereal",
+          "legume",
+          "oilseed",
+          "vegetable",
+          "fruit",
+          "tuber",
+          "fibre",
+          "forage",
+          "other"
+        ],
+        "title": "CropCategory",
+        "type": "string"
+      },
+      "CropHealth": {
+        "description": "Composite crop health, combining vegetation vigour with agronomic context.\n\nResponse for `GET /api/v1/farms/{farm_id}/health`.",
+        "properties": {
+          "band": {
+            "$ref": "#/components/schemas/ScoreBand"
+          },
+          "current_ndvi": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": -1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Ndvi"
+          },
+          "days_since_planting": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Since Planting"
+          },
+          "days_to_expected_harvest": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Expected Harvest"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "gdd_accumulated": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Growing degree days accumulated since planting.",
+            "title": "Gdd Accumulated"
+          },
+          "gdd_required": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gdd Required"
+          },
+          "growth_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Growth Stage"
+          },
+          "ndvi_trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ndvi Trend"
+          },
+          "score": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "stress_indicators": {
+            "description": "Detected stress signals, e.g. 'NDVI declined 12% over 14 days'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Stress Indicators",
+            "type": "array"
+          }
+        },
+        "required": [
+          "score",
+          "band",
+          "explanation"
+        ],
+        "title": "CropHealth",
+        "type": "object"
+      },
+      "CropImage": {
+        "description": "An uploaded crop image and its diagnosis, if one has run.",
+        "properties": {
+          "ai_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AIMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CropImageAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until analysis completes."
+          },
+          "analysis_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Error"
+          },
+          "analysis_status": {
+            "$ref": "#/components/schemas/ImageAnalysisStatus"
+          },
+          "analyzed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzed At"
+          },
+          "content_type": {
+            "examples": [
+              "image/jpeg"
+            ],
+            "title": "Content Type",
+            "type": "string"
+          },
+          "farm_crop_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Farm Crop Id"
+          },
+          "farm_id": {
+            "format": "uuid",
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional context supplied at upload.",
+            "title": "Note"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "size_bytes": {
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "title": "Uploaded At",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Signed URL for display. May expire.",
+            "title": "Url"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "id",
+          "farm_id",
+          "content_type",
+          "size_bytes",
+          "analysis_status",
+          "uploaded_at"
+        ],
+        "title": "CropImage",
+        "type": "object"
+      },
+      "CropImageAnalysis": {
+        "description": "Structured diagnosis for a single crop image.",
+        "properties": {
+          "affected_area_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Area Pct"
+          },
+          "condition": {
+            "description": "Machine key for the primary finding.",
+            "examples": [
+              "late_blight",
+              "healthy"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "condition_label": {
+            "examples": [
+              "Late blight"
+            ],
+            "title": "Condition Label",
+            "type": "string"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "crop_identified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "potato"
+            ],
+            "title": "Crop Identified"
+          },
+          "differential_diagnoses": {
+            "description": "Alternatives considered, most likely first.",
+            "items": {
+              "$ref": "#/components/schemas/DifferentialItem"
+            },
+            "title": "Differential Diagnoses",
+            "type": "array"
+          },
+          "disclaimer": {
+            "description": "Mandatory. AI-assisted diagnosis, not a substitute for an agronomist.",
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "immediate_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Immediate Actions",
+            "type": "array"
+          },
+          "is_plant_material": {
+            "description": "False when the image does not show plant material. All other fields are then unreliable.",
+            "title": "Is Plant Material",
+            "type": "boolean"
+          },
+          "prevention": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prevention",
+            "type": "array"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "symptoms_observed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Symptoms Observed",
+            "type": "array"
+          },
+          "treatment_options": {
+            "items": {
+              "$ref": "#/components/schemas/TreatmentOption"
+            },
+            "title": "Treatment Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "is_plant_material",
+          "condition",
+          "condition_label",
+          "severity",
+          "confidence",
+          "disclaimer"
+        ],
+        "title": "CropImageAnalysis",
+        "type": "object"
+      },
+      "CropImageList": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/crop-images`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CropImage"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "CropImageList",
+        "type": "object"
+      },
+      "CropList": {
+        "description": "Response for `GET /api/v1/reference/crops`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Crop"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "CropList",
+        "type": "object"
+      },
+      "CropRecommendation": {
+        "description": "One suggested crop, with its deterministic suitability score.",
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/CropCategory"
+          },
+          "considerations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Considerations",
+            "type": "array"
+          },
+          "crop_code": {
+            "examples": [
+              "sorghum"
+            ],
+            "title": "Crop Code",
+            "type": "string"
+          },
+          "crop_name": {
+            "examples": [
+              "Sorghum"
+            ],
+            "title": "Crop Name",
+            "type": "string"
+          },
+          "expected_yield_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Yield Note"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "is_current_crop": {
+            "default": false,
+            "description": "True if the farm already grows this.",
+            "title": "Is Current Crop",
+            "type": "boolean"
+          },
+          "planting_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Late March to mid April"
+            ],
+            "title": "Planting Window"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "rationale": {
+            "description": "Narrative over the computed suitability.",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "season": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Season"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strengths": {
+            "examples": [
+              [
+                "Tolerates the farm's 5.8 pH",
+                "Low water demand"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Strengths",
+            "type": "array"
+          },
+          "suitability_score": {
+            "description": "Deterministic match against soil and climate.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Suitability Score",
+            "type": "integer"
+          },
+          "water_requirement_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Water Requirement Mm"
+          }
+        },
+        "required": [
+          "crop_code",
+          "crop_name",
+          "category",
+          "suitability_score",
+          "rank",
+          "rationale"
+        ],
+        "title": "CropRecommendation",
+        "type": "object"
+      },
+      "CropRecommendationList": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/recommendations/crops`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CropRecommendation"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "CropRecommendationList",
+        "type": "object"
+      },
+      "CropStatus": {
+        "enum": [
+          "planned",
+          "growing",
+          "harvested",
+          "failed"
+        ],
+        "title": "CropStatus",
+        "type": "string"
+      },
+      "DataMode": {
+        "description": "Provenance of a data payload. Never omit or guess this.",
+        "enum": [
+          "live",
+          "cached",
+          "simulated",
+          "unavailable"
+        ],
+        "title": "DataMode",
+        "type": "string"
+      },
+      "DataSourceMeta": {
+        "description": "Provenance attached to every externally-sourced payload.",
+        "properties": {
+          "fetched_at": {
+            "description": "When these values were produced or retrieved.",
+            "format": "date-time",
+            "title": "Fetched At",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DataMode",
+            "description": "Whether these values are real observations. `simulated` means the data was generated locally and must be labelled as such in the UI."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable qualifier, e.g. why a provider was degraded.",
+            "examples": [
+              "SoilGrids timed out; texture-class defaults substituted."
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "description": "Provider identifier, or 'simulated' when locally generated.",
+            "examples": [
+              "open-meteo",
+              "soilgrids",
+              "simulated"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "mode",
+          "fetched_at"
+        ],
+        "title": "DataSourceMeta",
+        "type": "object"
+      },
       "DependencyStatus": {
         "properties": {
           "detail": {
@@ -50,6 +1435,383 @@
         "title": "DependencyStatus",
         "type": "object"
       },
+      "DifferentialItem": {
+        "description": "An alternative explanation the model considered.",
+        "properties": {
+          "condition": {
+            "examples": [
+              "early_blight"
+            ],
+            "title": "Condition",
+            "type": "string"
+          },
+          "condition_label": {
+            "examples": [
+              "Early blight"
+            ],
+            "title": "Condition Label",
+            "type": "string"
+          },
+          "distinguishing_features": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What would confirm or rule this out on closer inspection.",
+            "title": "Distinguishing Features"
+          },
+          "likelihood": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Likelihood",
+            "type": "number"
+          }
+        },
+        "required": [
+          "condition",
+          "condition_label",
+          "likelihood"
+        ],
+        "title": "DifferentialItem",
+        "type": "object"
+      },
+      "DiseaseRisk": {
+        "description": "Aggregate disease pressure.\n\nResponse for `GET /api/v1/farms/{farm_id}/risks/disease`.",
+        "properties": {
+          "conditions_summary": {
+            "description": "The weather pattern driving pressure, in one sentence.",
+            "title": "Conditions Summary",
+            "type": "string"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "risks": {
+            "description": "Per-pathogen assessments, highest risk first.",
+            "items": {
+              "$ref": "#/components/schemas/DiseaseRiskItem"
+            },
+            "title": "Risks",
+            "type": "array"
+          },
+          "score": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "score",
+          "conditions_summary",
+          "explanation"
+        ],
+        "title": "DiseaseRisk",
+        "type": "object"
+      },
+      "DiseaseRiskItem": {
+        "description": "One pathogen evaluated against the farm's conditions.\n\nProduced by an explicit agronomic rule (temperature window, humidity threshold,\nconsecutive-hour duration, growth stage) \u2014 not by the AI.",
+        "properties": {
+          "crop_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "potato"
+            ],
+            "title": "Crop Code"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "name": {
+            "examples": [
+              "Late blight"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "pathogen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Phytophthora infestans"
+            ],
+            "title": "Pathogen"
+          },
+          "preventive_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Preventive Actions",
+            "type": "array"
+          },
+          "probability": {
+            "description": "Rule-derived likelihood under current conditions.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Probability",
+            "type": "number"
+          },
+          "scouting_advice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scouting Advice"
+          },
+          "triggering_conditions": {
+            "description": "The rule clauses that matched.",
+            "examples": [
+              [
+                "RH above 85% for 14 consecutive hours",
+                "Mean temp 18 \u00b0C"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Triggering Conditions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "level",
+          "probability"
+        ],
+        "title": "DiseaseRiskItem",
+        "type": "object"
+      },
+      "DroughtTolerance": {
+        "enum": [
+          "low",
+          "moderate",
+          "high"
+        ],
+        "title": "DroughtTolerance",
+        "type": "string"
+      },
+      "EnumCatalog": {
+        "description": "Every enum the frontend needs to render, with labels.\n\nTyped per-field (rather than a bare dict) so `openapi-typescript` produces a\nreal interface instead of `Record<string, unknown>`.",
+        "properties": {
+          "advisory_category": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Advisory Category",
+            "type": "array"
+          },
+          "advisory_priority": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Advisory Priority",
+            "type": "array"
+          },
+          "ai_mode": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Ai Mode",
+            "type": "array"
+          },
+          "analysis_status": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Analysis Status",
+            "type": "array"
+          },
+          "crop_category": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Crop Category",
+            "type": "array"
+          },
+          "crop_status": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Crop Status",
+            "type": "array"
+          },
+          "data_mode": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Data Mode",
+            "type": "array"
+          },
+          "drought_tolerance": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Drought Tolerance",
+            "type": "array"
+          },
+          "farming_practice": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Farming Practice",
+            "type": "array"
+          },
+          "growth_stage": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Growth Stage",
+            "type": "array"
+          },
+          "image_analysis_status": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Image Analysis Status",
+            "type": "array"
+          },
+          "irrigation_type": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Irrigation Type",
+            "type": "array"
+          },
+          "risk_level": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Risk Level",
+            "type": "array"
+          },
+          "score_band": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Score Band",
+            "type": "array"
+          },
+          "season": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Season",
+            "type": "array"
+          },
+          "severity": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Severity",
+            "type": "array"
+          },
+          "soil_texture": {
+            "items": {
+              "$ref": "#/components/schemas/EnumValue"
+            },
+            "title": "Soil Texture",
+            "type": "array"
+          }
+        },
+        "required": [
+          "irrigation_type",
+          "farming_practice",
+          "crop_category",
+          "season",
+          "growth_stage",
+          "crop_status",
+          "advisory_category",
+          "advisory_priority",
+          "severity",
+          "analysis_status",
+          "ai_mode",
+          "image_analysis_status",
+          "soil_texture",
+          "drought_tolerance",
+          "risk_level",
+          "score_band",
+          "data_mode"
+        ],
+        "title": "EnumCatalog",
+        "type": "object"
+      },
+      "EnumCatalogResponse": {
+        "description": "Wrapper so the catalog can gain metadata without a breaking change.",
+        "properties": {
+          "enums": {
+            "$ref": "#/components/schemas/EnumCatalog",
+            "description": "Every enum, with display labels."
+          }
+        },
+        "required": [
+          "enums"
+        ],
+        "title": "EnumCatalogResponse",
+        "type": "object"
+      },
+      "EnumValue": {
+        "description": "One selectable option, with display text supplied by the backend.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "EnumValue",
+        "type": "object"
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
@@ -61,10 +1823,17 @@
             "type": "string"
           },
           "details": {
-            "additionalProperties": true,
-            "description": "Structured context. For 422 this contains `fields: ErrorField[]`.",
-            "title": "Details",
-            "type": "object"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationErrorDetails"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Structured context, keyed by error code. When `code` is `VALIDATION_ERROR` this is `ValidationErrorDetails` (a `fields` array); otherwise it is a code-specific object, e.g. `{\"farm_id\": \"\u2026\"}` for `FARM_NOT_FOUND`, or empty when there is no extra context.",
+            "title": "Details"
           },
           "message": {
             "description": "Human-readable explanation. May change without notice.",
@@ -91,6 +1860,42 @@
         "title": "ErrorDetail",
         "type": "object"
       },
+      "ErrorField": {
+        "description": "One field-level validation failure. Present in `details.fields` on a 422.",
+        "properties": {
+          "field": {
+            "description": "Dotted path to the offending field.",
+            "examples": [
+              "latitude"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "message": {
+            "description": "What is wrong with it.",
+            "examples": [
+              "Input should be less than or equal to 90"
+            ],
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "description": "Machine-readable validation failure type.",
+            "examples": [
+              "less_than_equal"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "message",
+          "type"
+        ],
+        "title": "ErrorField",
+        "type": "object"
+      },
       "ErrorResponse": {
         "description": "The one and only error shape returned by every 4xx/5xx response.",
         "properties": {
@@ -103,6 +1908,857 @@
         ],
         "title": "ErrorResponse",
         "type": "object"
+      },
+      "Farm": {
+        "description": "Full server representation of a registered farm.",
+        "properties": {
+          "area_hectares": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              12.5
+            ],
+            "title": "Area Hectares"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "maxLength": 2,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 3166-1 alpha-2, uppercase.",
+            "examples": [
+              "KE"
+            ],
+            "title": "Country Code"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "crop_count": {
+            "default": 0,
+            "description": "Number of crops currently attached to this farm.",
+            "minimum": 0.0,
+            "title": "Crop Count",
+            "type": "integer"
+          },
+          "elevation_m": {
+            "anyOf": [
+              {
+                "maximum": 9000.0,
+                "minimum": -500.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation M"
+          },
+          "farming_practice": {
+            "$ref": "#/components/schemas/FarmingPractice",
+            "default": "conventional"
+          },
+          "has_analysis": {
+            "default": false,
+            "description": "Whether an analysis run exists. Drives the dashboard empty state.",
+            "title": "Has Analysis",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "irrigation_type": {
+            "$ref": "#/components/schemas/IrrigationType",
+            "default": "rainfed"
+          },
+          "latitude": {
+            "examples": [
+              -1.2921
+            ],
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "examples": [
+              36.8219
+            ],
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "examples": [
+              "North Field"
+            ],
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Nairobi"
+            ],
+            "title": "Region"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "latitude",
+          "longitude",
+          "id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Farm",
+        "type": "object"
+      },
+      "FarmCreate": {
+        "description": "Request body for `POST /api/v1/farms`.",
+        "properties": {
+          "area_hectares": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              12.5
+            ],
+            "title": "Area Hectares"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "maxLength": 2,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 3166-1 alpha-2, uppercase.",
+            "examples": [
+              "KE"
+            ],
+            "title": "Country Code"
+          },
+          "elevation_m": {
+            "anyOf": [
+              {
+                "maximum": 9000.0,
+                "minimum": -500.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation M"
+          },
+          "farming_practice": {
+            "$ref": "#/components/schemas/FarmingPractice",
+            "default": "conventional"
+          },
+          "irrigation_type": {
+            "$ref": "#/components/schemas/IrrigationType",
+            "default": "rainfed"
+          },
+          "latitude": {
+            "examples": [
+              -1.2921
+            ],
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "examples": [
+              36.8219
+            ],
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "examples": [
+              "North Field"
+            ],
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Nairobi"
+            ],
+            "title": "Region"
+          }
+        },
+        "required": [
+          "name",
+          "latitude",
+          "longitude"
+        ],
+        "title": "FarmCreate",
+        "type": "object"
+      },
+      "FarmCrop": {
+        "description": "A crop planted on a specific farm, with the catalog entry embedded so the\nfrontend renders a card without a second request.",
+        "properties": {
+          "area_hectares": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Hectares"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "crop": {
+            "$ref": "#/components/schemas/Crop"
+          },
+          "crop_id": {
+            "description": "References a crop in the reference catalog.",
+            "format": "uuid",
+            "title": "Crop Id",
+            "type": "string"
+          },
+          "expected_harvest_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Harvest Date"
+          },
+          "farm_id": {
+            "format": "uuid",
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "growth_stage": {
+            "$ref": "#/components/schemas/GrowthStage",
+            "default": "not_planted"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_primary": {
+            "default": false,
+            "description": "The crop this farm's analysis is centred on. At most one per farm.",
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "planting_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planting Date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CropStatus",
+            "default": "planned"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "crop_id",
+          "id",
+          "farm_id",
+          "crop",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FarmCrop",
+        "type": "object"
+      },
+      "FarmCropCreate": {
+        "description": "Request body for `POST /api/v1/farms/{farm_id}/crops`.",
+        "properties": {
+          "area_hectares": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Hectares"
+          },
+          "crop_id": {
+            "description": "References a crop in the reference catalog.",
+            "format": "uuid",
+            "title": "Crop Id",
+            "type": "string"
+          },
+          "expected_harvest_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Harvest Date"
+          },
+          "growth_stage": {
+            "$ref": "#/components/schemas/GrowthStage",
+            "default": "not_planted"
+          },
+          "is_primary": {
+            "default": false,
+            "description": "The crop this farm's analysis is centred on. At most one per farm.",
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "planting_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planting Date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CropStatus",
+            "default": "planned"
+          }
+        },
+        "required": [
+          "crop_id"
+        ],
+        "title": "FarmCropCreate",
+        "type": "object"
+      },
+      "FarmCropList": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/crops`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FarmCrop"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "FarmCropList",
+        "type": "object"
+      },
+      "FarmCropUpdate": {
+        "description": "Request body for `PATCH /api/v1/farms/{farm_id}/crops/{farm_crop_id}`.",
+        "properties": {
+          "area_hectares": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Hectares"
+          },
+          "crop_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Id"
+          },
+          "expected_harvest_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Harvest Date"
+          },
+          "growth_stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GrowthStage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_primary": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Primary"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "planting_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planting Date"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CropStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "FarmCropUpdate",
+        "type": "object"
+      },
+      "FarmDashboard": {
+        "description": "Everything the unified dashboard needs, in one request.\n\nResponse for `GET /api/v1/farms/{farm_id}/dashboard`.\n\nThis endpoint does not 404 when no analysis exists \u2014 it returns\n`has_analysis: false` and `analysis: null` so the frontend renders a\n\"Run analysis\" empty state rather than handling an error.",
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "crops": {
+            "items": {
+              "$ref": "#/components/schemas/FarmCrop"
+            },
+            "title": "Crops",
+            "type": "array"
+          },
+          "current_weather": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeatherCurrent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_freshness": {
+            "description": "Provenance of every panel, so the UI can badge simulated or stale data.",
+            "items": {
+              "$ref": "#/components/schemas/DataSourceMeta"
+            },
+            "title": "Data Freshness",
+            "type": "array"
+          },
+          "farm": {
+            "$ref": "#/components/schemas/Farm"
+          },
+          "has_analysis": {
+            "title": "Has Analysis",
+            "type": "boolean"
+          },
+          "recent_images": {
+            "items": {
+              "$ref": "#/components/schemas/CropImage"
+            },
+            "title": "Recent Images",
+            "type": "array"
+          }
+        },
+        "required": [
+          "farm",
+          "has_analysis"
+        ],
+        "title": "FarmDashboard",
+        "type": "object"
+      },
+      "FarmList": {
+        "description": "Response for `GET /api/v1/farms`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Farm"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "FarmList",
+        "type": "object"
+      },
+      "FarmUpdate": {
+        "description": "Request body for `PATCH /api/v1/farms/{farm_id}`. Omitted fields are unchanged.",
+        "properties": {
+          "area_hectares": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Hectares"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "maxLength": 2,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Code"
+          },
+          "elevation_m": {
+            "anyOf": [
+              {
+                "maximum": 9000.0,
+                "minimum": -500.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation M"
+          },
+          "farming_practice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FarmingPractice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "irrigation_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IrrigationType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          }
+        },
+        "title": "FarmUpdate",
+        "type": "object"
+      },
+      "FarmingPractice": {
+        "enum": [
+          "conventional",
+          "organic",
+          "regenerative",
+          "mixed"
+        ],
+        "title": "FarmingPractice",
+        "type": "string"
+      },
+      "GrowthStage": {
+        "enum": [
+          "not_planted",
+          "germination",
+          "seedling",
+          "vegetative",
+          "flowering",
+          "fruiting",
+          "maturity",
+          "harvested"
+        ],
+        "title": "GrowthStage",
+        "type": "string"
       },
       "HealthResponse": {
         "description": "Liveness: the process is up and serving.",
@@ -149,6 +2805,166 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "ImageAnalysisStatus": {
+        "enum": [
+          "pending",
+          "analyzing",
+          "complete",
+          "failed"
+        ],
+        "title": "ImageAnalysisStatus",
+        "type": "string"
+      },
+      "IrrigationType": {
+        "enum": [
+          "rainfed",
+          "drip",
+          "sprinkler",
+          "flood",
+          "furrow",
+          "none"
+        ],
+        "title": "IrrigationType",
+        "type": "string"
+      },
+      "Location": {
+        "description": "A geocoded place.",
+        "properties": {
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Kenya"
+            ],
+            "title": "Country"
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "maxLength": 2,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Code"
+          },
+          "display_name": {
+            "description": "Pre-formatted label for a picker row.",
+            "examples": [
+              "Nakuru, Nakuru County, Kenya"
+            ],
+            "title": "Display Name",
+            "type": "string"
+          },
+          "elevation_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation M"
+          },
+          "latitude": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "type": "number"
+          },
+          "name": {
+            "examples": [
+              "Nakuru"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Nakuru County"
+            ],
+            "title": "Region"
+          }
+        },
+        "required": [
+          "name",
+          "latitude",
+          "longitude",
+          "display_name"
+        ],
+        "title": "Location",
+        "type": "object"
+      },
+      "LocationList": {
+        "description": "Response for `GET /api/v1/reference/locations`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Location"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataSourceMeta",
+            "description": "Provenance. `simulated` until a real geocoder is wired in."
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "meta"
+        ],
+        "title": "LocationList",
+        "type": "object"
+      },
       "ReadinessResponse": {
         "description": "Readiness: the process is up *and* its dependencies are reachable.",
         "properties": {
@@ -191,6 +3007,1550 @@
         ],
         "title": "ReadinessResponse",
         "type": "object"
+      },
+      "RegenerativeRecommendation": {
+        "description": "One regenerative practice matched to this farm's soil and management.",
+        "properties": {
+          "considerations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Considerations",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "effort_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "moderate"
+            ],
+            "title": "Effort Level"
+          },
+          "expected_benefits": {
+            "examples": [
+              [
+                "Raises soil organic carbon",
+                "Reduces erosion on sloped ground"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Expected Benefits",
+            "type": "array"
+          },
+          "implementation_steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Implementation Steps",
+            "type": "array"
+          },
+          "practice_code": {
+            "examples": [
+              "cover_cropping"
+            ],
+            "title": "Practice Code",
+            "type": "string"
+          },
+          "practice_name": {
+            "examples": [
+              "Cover cropping"
+            ],
+            "title": "Practice Name",
+            "type": "string"
+          },
+          "rank": {
+            "minimum": 1.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "relevance_score": {
+            "description": "How well this practice addresses the farm's limitations.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Relevance Score",
+            "type": "integer"
+          },
+          "soil_carbon_impact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Qualitative expected effect on soil organic carbon.",
+            "examples": [
+              "moderate increase over 3-5 seasons"
+            ],
+            "title": "Soil Carbon Impact"
+          },
+          "time_to_benefit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "1-2 seasons"
+            ],
+            "title": "Time To Benefit"
+          },
+          "water_retention_impact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Water Retention Impact"
+          }
+        },
+        "required": [
+          "practice_code",
+          "practice_name",
+          "rank",
+          "relevance_score",
+          "description",
+          "rationale"
+        ],
+        "title": "RegenerativeRecommendation",
+        "type": "object"
+      },
+      "RegenerativeRecommendationList": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/recommendations/regenerative`.",
+        "properties": {
+          "has_next": {
+            "default": false,
+            "title": "Has Next",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegenerativeRecommendation"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "default": 50,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total items matching the query.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "RegenerativeRecommendationList",
+        "type": "object"
+      },
+      "RiskLevel": {
+        "description": "Qualitative severity for a risk assessment.",
+        "enum": [
+          "low",
+          "moderate",
+          "high",
+          "severe"
+        ],
+        "title": "RiskLevel",
+        "type": "string"
+      },
+      "ScoreBand": {
+        "description": "Qualitative band for a 0-100 score.",
+        "enum": [
+          "excellent",
+          "good",
+          "moderate",
+          "poor",
+          "critical"
+        ],
+        "title": "ScoreBand",
+        "type": "string"
+      },
+      "ScoredFactor": {
+        "description": "One weighted contributor to a composite score.\n\nEmitting these alongside every composite is what makes the health score\nexplainable: the UI renders the breakdown, not just the total.",
+        "properties": {
+          "band": {
+            "$ref": "#/components/schemas/ScoreBand"
+          },
+          "explanation": {
+            "description": "Why this factor scored as it did.",
+            "title": "Explanation",
+            "type": "string"
+          },
+          "key": {
+            "description": "Stable machine key.",
+            "examples": [
+              "soil_ph"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "description": "Display name.",
+            "examples": [
+              "Soil pH"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "score": {
+            "description": "This factor's own 0-100 score.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Its weight in the composite.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "score",
+          "weight",
+          "band",
+          "explanation"
+        ],
+        "title": "ScoredFactor",
+        "type": "object"
+      },
+      "Season": {
+        "enum": [
+          "spring",
+          "summer",
+          "autumn",
+          "winter",
+          "year_round"
+        ],
+        "title": "Season",
+        "type": "string"
+      },
+      "Severity": {
+        "enum": [
+          "none",
+          "mild",
+          "moderate",
+          "severe"
+        ],
+        "title": "Severity",
+        "type": "string"
+      },
+      "SoilAssessment": {
+        "description": "The risk engine's read on whether this soil suits the farm's crop.",
+        "properties": {
+          "band": {
+            "$ref": "#/components/schemas/ScoreBand"
+          },
+          "explanation": {
+            "description": "Narrative over the computed values. Never introduces new numbers.",
+            "title": "Explanation",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "fertility_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "moderate"
+            ],
+            "title": "Fertility Status"
+          },
+          "limitations": {
+            "description": "Concrete constraints found, e.g. 'pH 5.1 is below maize tolerance'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "organic_matter_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "low",
+              "adequate"
+            ],
+            "title": "Organic Matter Status"
+          },
+          "ph_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "pH judged against the crop's tolerated range.",
+            "examples": [
+              "optimal",
+              "slightly_acidic",
+              "too_alkaline"
+            ],
+            "title": "Ph Status"
+          },
+          "score": {
+            "description": "Deterministic suitability score.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "texture_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SoilTexture"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "score",
+          "band",
+          "explanation"
+        ],
+        "title": "SoilAssessment",
+        "type": "object"
+      },
+      "SoilProfile": {
+        "description": "Physical and chemical soil properties at the farm location.\n\nResponse for `GET /api/v1/farms/{farm_id}/soil`.",
+        "properties": {
+          "bulk_density_kg_dm3": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bulk Density Kg Dm3"
+          },
+          "cec_cmol_kg": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cation exchange capacity \u2014 nutrient-holding ability.",
+            "title": "Cec Cmol Kg"
+          },
+          "clay_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clay Pct"
+          },
+          "depth_cm": {
+            "default": "0-30",
+            "description": "Depth interval these values describe.",
+            "examples": [
+              "0-30"
+            ],
+            "title": "Depth Cm",
+            "type": "string"
+          },
+          "farm_id": {
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataSourceMeta"
+          },
+          "nitrogen_g_kg": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nitrogen G Kg"
+          },
+          "organic_carbon_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organic Carbon Pct"
+          },
+          "ph": {
+            "anyOf": [
+              {
+                "maximum": 14.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              6.2
+            ],
+            "title": "Ph"
+          },
+          "sand_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sand Pct"
+          },
+          "silt_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silt Pct"
+          },
+          "texture_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SoilTexture"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "water_holding_capacity_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plant-available water capacity, derived from texture. Feeds the water balance.",
+            "title": "Water Holding Capacity Mm"
+          }
+        },
+        "required": [
+          "farm_id",
+          "meta"
+        ],
+        "title": "SoilProfile",
+        "type": "object"
+      },
+      "SoilTexture": {
+        "enum": [
+          "sand",
+          "loamy_sand",
+          "sandy_loam",
+          "loam",
+          "silt_loam",
+          "silt",
+          "sandy_clay_loam",
+          "clay_loam",
+          "silty_clay_loam",
+          "sandy_clay",
+          "silty_clay",
+          "clay"
+        ],
+        "title": "SoilTexture",
+        "type": "string"
+      },
+      "TreatmentOption": {
+        "description": "One treatment path, with enough context to choose between them.",
+        "properties": {
+          "approach": {
+            "description": "Broad category.",
+            "examples": [
+              "organic",
+              "chemical",
+              "cultural"
+            ],
+            "title": "Approach",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "examples": [
+              "Copper-based fungicide"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "precautions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precautions"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Apply at first sign, repeat in 7 days"
+            ],
+            "title": "Timing"
+          }
+        },
+        "required": [
+          "name",
+          "approach",
+          "description"
+        ],
+        "title": "TreatmentOption",
+        "type": "object"
+      },
+      "ValidationErrorDetails": {
+        "description": "The shape of `details` when `code` is `VALIDATION_ERROR`.\n\nDocumented as its own model so `ErrorField` is emitted into the OpenAPI components\nand the frontend gets a real type for form-error rendering.",
+        "properties": {
+          "fields": {
+            "description": "Every field that failed validation, one entry per failure.",
+            "items": {
+              "$ref": "#/components/schemas/ErrorField"
+            },
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "ValidationErrorDetails",
+        "type": "object"
+      },
+      "VegetationPoint": {
+        "description": "One observation in a vegetation index time series.",
+        "properties": {
+          "cloud_cover_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Higher values mean lower confidence.",
+            "title": "Cloud Cover Pct"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "evi": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": -1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Enhanced Vegetation Index.",
+            "title": "Evi"
+          },
+          "ndvi": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": -1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Normalized Difference Vegetation Index. Healthy canopy \u2248 0.6-0.9.",
+            "title": "Ndvi"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "VegetationPoint",
+        "type": "object"
+      },
+      "VegetationSeries": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/vegetation`.",
+        "properties": {
+          "current_ndvi": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": -1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Ndvi"
+          },
+          "farm_id": {
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "mean_ndvi": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": -1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Ndvi"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataSourceMeta"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/VegetationPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "trend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Direction over the window.",
+            "examples": [
+              "improving",
+              "stable",
+              "declining"
+            ],
+            "title": "Trend"
+          },
+          "trend_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Percent change from the start of the window.",
+            "title": "Trend Pct"
+          }
+        },
+        "required": [
+          "farm_id",
+          "meta"
+        ],
+        "title": "VegetationSeries",
+        "type": "object"
+      },
+      "WaterRisk": {
+        "description": "Irrigation and water-stress assessment from a soil water balance.\n\nResponse for `GET /api/v1/farms/{farm_id}/risks/water`.",
+        "properties": {
+          "days_until_stress": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Projected days before the crop enters water stress. Null if not projected.",
+            "title": "Days Until Stress"
+          },
+          "deficit_mm": {
+            "description": "Shortfall against crop demand. Zero when balance is non-negative.",
+            "minimum": 0.0,
+            "title": "Deficit Mm",
+            "type": "number"
+          },
+          "drivers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Drivers",
+            "type": "array"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "irrigation_efficiency_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the farm's irrigation type affects the recommendation.",
+            "title": "Irrigation Efficiency Note"
+          },
+          "irrigation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When to apply it.",
+            "examples": [
+              "within 48 hours"
+            ],
+            "title": "Irrigation Window"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "recommended_irrigation_mm": {
+            "description": "Suggested application to close the deficit.",
+            "minimum": 0.0,
+            "title": "Recommended Irrigation Mm",
+            "type": "number"
+          },
+          "score": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "soil_moisture_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soil Moisture Pct"
+          },
+          "total_crop_water_demand_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Crop Water Demand Mm"
+          },
+          "total_precipitation_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Precipitation Mm"
+          },
+          "water_balance_mm": {
+            "description": "\u03a3 precipitation \u2212 \u03a3(ET\u2080 \u00d7 Kc) over the assessment window. Negative means deficit.",
+            "title": "Water Balance Mm",
+            "type": "number"
+          },
+          "water_holding_capacity_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Water Holding Capacity Mm"
+          }
+        },
+        "required": [
+          "level",
+          "score",
+          "water_balance_mm",
+          "deficit_mm",
+          "recommended_irrigation_mm",
+          "explanation"
+        ],
+        "title": "WaterRisk",
+        "type": "object"
+      },
+      "WeatherBundle": {
+        "description": "Response for `GET /api/v1/farms/{farm_id}/weather`.\n\nCurrent conditions, forecast, and the historical summary in one payload \u2014 the\ndashboard needs all three and should not make three round trips.",
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeatherCurrent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "daily": {
+            "description": "Daily forecast, typically 7 days.",
+            "items": {
+              "$ref": "#/components/schemas/WeatherDaily"
+            },
+            "title": "Daily",
+            "type": "array"
+          },
+          "farm_id": {
+            "title": "Farm Id",
+            "type": "string"
+          },
+          "history": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeatherHistorySummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hourly": {
+            "description": "Forecast at hourly resolution.",
+            "items": {
+              "$ref": "#/components/schemas/WeatherHourly"
+            },
+            "title": "Hourly",
+            "type": "array"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/DataSourceMeta"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "farm_id",
+          "latitude",
+          "longitude",
+          "meta"
+        ],
+        "title": "WeatherBundle",
+        "type": "object"
+      },
+      "WeatherCurrent": {
+        "description": "Conditions at the farm right now.",
+        "properties": {
+          "cloud_cover_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloud Cover Pct"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "partly_cloudy"
+            ],
+            "title": "Condition"
+          },
+          "condition_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "examples": [
+              "Partly cloudy"
+            ],
+            "title": "Condition Label"
+          },
+          "feels_like_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feels Like C"
+          },
+          "humidity_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity Pct"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "precipitation_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Mm"
+          },
+          "pressure_hpa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pressure Hpa"
+          },
+          "temperature_c": {
+            "title": "Temperature C",
+            "type": "number"
+          },
+          "wind_direction_deg": {
+            "anyOf": [
+              {
+                "maximum": 360.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Direction Deg"
+          },
+          "wind_speed_kmh": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Speed Kmh"
+          }
+        },
+        "required": [
+          "observed_at",
+          "temperature_c"
+        ],
+        "title": "WeatherCurrent",
+        "type": "object"
+      },
+      "WeatherDaily": {
+        "description": "One daily aggregate.",
+        "properties": {
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "et0_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Et0 Mm"
+          },
+          "humidity_mean_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity Mean Pct"
+          },
+          "precipitation_hours": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Hours"
+          },
+          "precipitation_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Mm"
+          },
+          "temp_max_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp Max C"
+          },
+          "temp_mean_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp Mean C"
+          },
+          "temp_min_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temp Min C"
+          },
+          "wind_max_kmh": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Max Kmh"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "WeatherDaily",
+        "type": "object"
+      },
+      "WeatherHistorySummary": {
+        "description": "Aggregates over the lookback window \u2014 the inputs to the water balance.",
+        "properties": {
+          "end_date": {
+            "format": "date",
+            "title": "End Date",
+            "type": "string"
+          },
+          "longest_dry_spell_days": {
+            "minimum": 0.0,
+            "title": "Longest Dry Spell Days",
+            "type": "integer"
+          },
+          "max_temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Temp C"
+          },
+          "mean_temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Temp C"
+          },
+          "min_temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Temp C"
+          },
+          "rain_days": {
+            "description": "Days with measurable precipitation.",
+            "minimum": 0.0,
+            "title": "Rain Days",
+            "type": "integer"
+          },
+          "start_date": {
+            "format": "date",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "total_et0_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Et0 Mm"
+          },
+          "total_precipitation_mm": {
+            "minimum": 0.0,
+            "title": "Total Precipitation Mm",
+            "type": "number"
+          },
+          "window_days": {
+            "examples": [
+              30
+            ],
+            "minimum": 1.0,
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "start_date",
+          "end_date",
+          "total_precipitation_mm",
+          "rain_days",
+          "longest_dry_spell_days"
+        ],
+        "title": "WeatherHistorySummary",
+        "type": "object"
+      },
+      "WeatherHourly": {
+        "description": "One hourly step. Hourly resolution is what disease rules need \u2014 leaf-wetness\nstyle conditions are defined over consecutive hours, not daily means.",
+        "properties": {
+          "et0_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "FAO-56 reference evapotranspiration.",
+            "title": "Et0 Mm"
+          },
+          "humidity_pct": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Humidity Pct"
+          },
+          "precipitation_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precipitation Mm"
+          },
+          "soil_moisture_m3m3": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soil Moisture M3M3"
+          },
+          "soil_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soil Temperature C"
+          },
+          "temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature C"
+          },
+          "time": {
+            "format": "date-time",
+            "title": "Time",
+            "type": "string"
+          },
+          "wind_speed_kmh": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wind Speed Kmh"
+          }
+        },
+        "required": [
+          "time"
+        ],
+        "title": "WeatherHourly",
+        "type": "object"
+      },
+      "WeatherRisk": {
+        "description": "Near-term weather threats to the crop.\n\nResponse for `GET /api/v1/farms/{farm_id}/risks/weather`.",
+        "properties": {
+          "drivers": {
+            "description": "Which computed conditions drove this level.",
+            "examples": [
+              [
+                "4 forecast days above 34 \u00b0C during flowering"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Drivers",
+            "type": "array"
+          },
+          "explanation": {
+            "description": "Narrative over the values above.",
+            "title": "Explanation",
+            "type": "string"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/ScoredFactor"
+            },
+            "title": "Factors",
+            "type": "array"
+          },
+          "forecast_window_days": {
+            "examples": [
+              7
+            ],
+            "minimum": 1.0,
+            "title": "Forecast Window Days",
+            "type": "integer"
+          },
+          "frost_risk_days": {
+            "minimum": 0.0,
+            "title": "Frost Risk Days",
+            "type": "integer"
+          },
+          "heat_stress_days": {
+            "description": "Forecast days above the crop's optimal maximum temperature.",
+            "minimum": 0.0,
+            "title": "Heat Stress Days",
+            "type": "integer"
+          },
+          "heavy_rain_days": {
+            "minimum": 0.0,
+            "title": "Heavy Rain Days",
+            "type": "integer"
+          },
+          "high_wind_days": {
+            "minimum": 0.0,
+            "title": "High Wind Days",
+            "type": "integer"
+          },
+          "level": {
+            "$ref": "#/components/schemas/RiskLevel"
+          },
+          "longest_dry_spell_days": {
+            "minimum": 0.0,
+            "title": "Longest Dry Spell Days",
+            "type": "integer"
+          },
+          "max_temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Temp C"
+          },
+          "min_temp_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Temp C"
+          },
+          "score": {
+            "description": "Higher means more risk.",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "integer"
+          },
+          "total_precipitation_mm": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Precipitation Mm"
+          }
+        },
+        "required": [
+          "level",
+          "score",
+          "forecast_window_days",
+          "heat_stress_days",
+          "frost_risk_days",
+          "heavy_rain_days",
+          "high_wind_days",
+          "longest_dry_spell_days",
+          "explanation"
+        ],
+        "title": "WeatherRisk",
+        "type": "object"
       }
     }
   },
@@ -201,6 +4561,1653 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/analysis/{run_id}": {
+      "get": {
+        "description": "Permalink to a specific run. Runs are immutable, so this is stable.",
+        "operationId": "get_analysis_run_api_v1_analysis__run_id__get",
+        "parameters": [
+          {
+            "description": "Analysis run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "Analysis run identifier.",
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Get an analysis run by id",
+        "tags": [
+          "analysis",
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/crop-images/{image_id}": {
+      "get": {
+        "description": "Poll this while `analysis_status` is `pending` or `analyzing`.",
+        "operationId": "get_crop_image_api_v1_crop_images__image_id__get",
+        "parameters": [
+          {
+            "description": "Crop image identifier.",
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "description": "Crop image identifier.",
+              "format": "uuid",
+              "title": "Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropImage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "IMAGE_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Get a crop image",
+        "tags": [
+          "crop-images"
+        ]
+      }
+    },
+    "/api/v1/crop-images/{image_id}/analyze": {
+      "post": {
+        "description": "Runs multimodal analysis on a previously uploaded image, using the farm's crop and weather context to sharpen the diagnosis.\n\nThe result always states `is_plant_material`, lists `differential_diagnoses` rather than a single overconfident answer, and carries a `disclaimer`. Check `ai_mode` to see whether a real model or a mock produced it.",
+        "operationId": "analyze_crop_image_api_v1_crop_images__image_id__analyze_post",
+        "parameters": [
+          {
+            "description": "Crop image identifier.",
+            "in": "path",
+            "name": "image_id",
+            "required": true,
+            "schema": {
+              "description": "Crop image identifier.",
+              "format": "uuid",
+              "title": "Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropImage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "IMAGE_NOT_FOUND"
+          },
+          "409": {
+            "description": "ANALYSIS_IN_PROGRESS"
+          },
+          "503": {
+            "description": "AI_UNAVAILABLE"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Diagnose a crop image",
+        "tags": [
+          "crop-images"
+        ]
+      }
+    },
+    "/api/v1/farms": {
+      "get": {
+        "operationId": "list_farms_api_v1_farms_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "List farms",
+        "tags": [
+          "farms"
+        ]
+      },
+      "post": {
+        "description": "Creates a farm at the given coordinates. Coordinates drive every downstream data lookup.",
+        "operationId": "create_farm_api_v1_farms_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Farm"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Register a farm",
+        "tags": [
+          "farms"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}": {
+      "delete": {
+        "description": "Soft delete. Historical analysis runs are retained.",
+        "operationId": "delete_farm_api_v1_farms__farm_id__delete",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Delete a farm",
+        "tags": [
+          "farms"
+        ]
+      },
+      "get": {
+        "operationId": "get_farm_api_v1_farms__farm_id__get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Farm"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Get a farm",
+        "tags": [
+          "farms"
+        ]
+      },
+      "patch": {
+        "description": "Partial update. Omitted fields are left unchanged.",
+        "operationId": "update_farm_api_v1_farms__farm_id__patch",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Farm"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Update a farm",
+        "tags": [
+          "farms"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/advisories": {
+      "get": {
+        "description": "Advisories from the latest analysis run, highest priority first. Each carries a `rationale` citing the computed values behind it.",
+        "operationId": "list_advisories_api_v1_farms__farm_id__advisories_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AdvisoryCategory"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AdvisoryPriority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_dismissed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Dismissed",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvisoryList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "AI agricultural advisories",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/analysis": {
+      "get": {
+        "description": "Lightweight run summaries, newest first \u2014 the source for trend charts.",
+        "operationId": "list_analysis_runs_api_v1_farms__farm_id__analysis_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRunList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Analysis history",
+        "tags": [
+          "analysis"
+        ]
+      },
+      "post": {
+        "description": "Gathers weather, soil and vegetation data, runs the deterministic risk engine, then asks the AI to interpret the computed results. Persists an immutable run.\n\n**This is the only endpoint that performs farm AI reasoning.** All other analysis endpoints read the stored result.\n\nA run with identical inputs inside the cache window is returned as-is; pass `force_refresh=true` to recompute.\n\nPartial failure does not fail the request: unavailable providers are listed in `degraded_sources` with `status: \"partial\"`, and if the AI is unavailable the narrative falls back to deterministic text with `ai_mode: \"fallback\"`. Check `ai_mode` and `sources[].mode` to see exactly what produced the result.",
+        "operationId": "run_analysis_api_v1_farms__farm_id__analysis_post",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bypass the cache and recompute from scratch.",
+            "in": "query",
+            "name": "force_refresh",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Bypass the cache and recompute from scratch.",
+              "title": "Force Refresh",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "409": {
+            "description": "ANALYSIS_IN_PROGRESS"
+          },
+          "502": {
+            "description": "PROVIDER_UNAVAILABLE \u2014 every data source failed"
+          },
+          "503": {
+            "description": "AI_UNAVAILABLE \u2014 AI failed and no fallback was possible"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Run a farm analysis",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/analysis/latest": {
+      "get": {
+        "description": "The most recent stored run. Returns NO_ANALYSIS_YET if none exists.",
+        "operationId": "get_latest_analysis_api_v1_farms__farm_id__analysis_latest_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Latest analysis run",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/crop-images": {
+      "get": {
+        "description": "Uploaded images with their diagnoses, newest first.",
+        "operationId": "list_crop_images_api_v1_farms__farm_id__crop_images_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropImageList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "List a farm's crop images",
+        "tags": [
+          "crop-images"
+        ]
+      },
+      "post": {
+        "description": "Accepts `multipart/form-data`. Max 10 MB; allowed types: image/jpeg, image/png, image/webp.\n\nReturns immediately with `analysis_status: \"pending\"` so the UI can render the thumbnail at once. Pass `analyze=true` to run the diagnosis in the same request.",
+        "operationId": "upload_crop_image_api_v1_farms__farm_id__crop_images_post",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Run the diagnosis immediately instead of returning pending.",
+            "in": "query",
+            "name": "analyze",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Run the diagnosis immediately instead of returning pending.",
+              "title": "Analyze",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_crop_image_api_v1_farms__farm_id__crop_images_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropImage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "413": {
+            "description": "IMAGE_TOO_LARGE"
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Upload a crop image",
+        "tags": [
+          "crop-images"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/crops": {
+      "get": {
+        "operationId": "list_farm_crops_api_v1_farms__farm_id__crops_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmCropList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "List a farm's crops",
+        "tags": [
+          "farms"
+        ]
+      },
+      "post": {
+        "description": "Attaches a catalog crop to this farm with planting dates and growth stage.",
+        "operationId": "add_farm_crop_api_v1_farms__farm_id__crops_post",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmCropCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmCrop"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or CROP_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Add a crop to a farm",
+        "tags": [
+          "farms"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/crops/{farm_crop_id}": {
+      "delete": {
+        "operationId": "delete_farm_crop_api_v1_farms__farm_id__crops__farm_crop_id__delete",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Farm-crop (planting) identifier.",
+            "in": "path",
+            "name": "farm_crop_id",
+            "required": true,
+            "schema": {
+              "description": "Farm-crop (planting) identifier.",
+              "format": "uuid",
+              "title": "Farm Crop Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or CROP_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Remove a crop from a farm",
+        "tags": [
+          "farms"
+        ]
+      },
+      "patch": {
+        "description": "Used to advance growth stage or record the harvest.",
+        "operationId": "update_farm_crop_api_v1_farms__farm_id__crops__farm_crop_id__patch",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Farm-crop (planting) identifier.",
+            "in": "path",
+            "name": "farm_crop_id",
+            "required": true,
+            "schema": {
+              "description": "Farm-crop (planting) identifier.",
+              "format": "uuid",
+              "title": "Farm Crop Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmCropUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmCrop"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or CROP_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Update a farm's crop",
+        "tags": [
+          "farms"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/dashboard": {
+      "get": {
+        "description": "Everything the dashboard needs in one request: the farm, its crops, the latest analysis, current weather, recent images, and per-panel data provenance.\n\n**Does not 404 when no analysis exists.** It returns `has_analysis: false` and `analysis: null` so the UI can render a 'Run analysis' empty state instead of handling an error.",
+        "operationId": "get_dashboard_api_v1_farms__farm_id__dashboard_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmDashboard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Unified farm dashboard",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/health": {
+      "get": {
+        "description": "Crop-health section of the latest analysis run: vigour, growth stage, stress signals.",
+        "operationId": "get_crop_health_api_v1_farms__farm_id__health_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Crop health",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/recommendations/crops": {
+      "get": {
+        "description": "Catalog crops ranked by deterministic suitability against this farm's soil and climate, with the AI's reasoning attached to each.",
+        "operationId": "get_crop_recommendations_api_v1_farms__farm_id__recommendations_crops_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "description": "How many to return.",
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropRecommendationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Crop recommendations",
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/recommendations/regenerative": {
+      "get": {
+        "description": "Regenerative practices scored against this farm's soil organic carbon, texture and current farming practice, with expected soil-carbon and water-retention effects.",
+        "operationId": "get_regenerative_recommendations_api_v1_farms__farm_id__recommendations_regenerative_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegenerativeRecommendationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Regenerative agriculture recommendations",
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/risks/disease": {
+      "get": {
+        "description": "Disease-risk section of the latest analysis run. Each pathogen is evaluated by an explicit agronomic rule over temperature, humidity, duration and growth stage.",
+        "operationId": "get_disease_risk_api_v1_farms__farm_id__risks_disease_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiseaseRisk"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Disease risk",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/risks/water": {
+      "get": {
+        "description": "Water-risk section of the latest analysis run: soil water balance, projected days to stress, and a recommended irrigation depth.",
+        "operationId": "get_water_risk_api_v1_farms__farm_id__risks_water_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaterRisk"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Water and irrigation risk",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/risks/weather": {
+      "get": {
+        "description": "Weather-risk section of the latest analysis run.",
+        "operationId": "get_weather_risk_api_v1_farms__farm_id__risks_weather_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherRisk"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Weather risk",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/soil": {
+      "get": {
+        "description": "Physical and chemical soil properties at the farm's coordinates, plus the derived plant-available water capacity that feeds the water balance.",
+        "operationId": "get_soil_api_v1_farms__farm_id__soil_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoilProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Soil profile for a farm",
+        "tags": [
+          "environment"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/vegetation": {
+      "get": {
+        "description": "NDVI/EVI time series with a trend summary. The vegetation provider is an abstraction: a real satellite source can replace the current one with no contract change. Read `meta.mode` to know which produced these values.",
+        "operationId": "get_vegetation_api_v1_farms__farm_id__vegetation_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 90,
+              "maximum": 365,
+              "minimum": 7,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VegetationSeries"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Vegetation index series for a farm",
+        "tags": [
+          "environment"
+        ]
+      }
+    },
+    "/api/v1/farms/{farm_id}/weather": {
+      "get": {
+        "description": "Current conditions, hourly and daily forecast, and a summary of the historical window \u2014 in one payload, because the dashboard needs all of it.\n\nHourly resolution matters: disease rules are defined over consecutive hours of humidity and temperature, not daily means.",
+        "operationId": "get_weather_api_v1_farms__farm_id__weather_get",
+        "parameters": [
+          {
+            "description": "Farm identifier.",
+            "in": "path",
+            "name": "farm_id",
+            "required": true,
+            "schema": {
+              "description": "Farm identifier.",
+              "format": "uuid",
+              "title": "Farm Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "forecast_days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "maximum": 16,
+              "minimum": 1,
+              "title": "Forecast Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "history_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "History Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherBundle"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "FARM_NOT_FOUND"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Weather for a farm",
+        "tags": [
+          "environment"
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "description": "Returns 200 whenever the API process is running. No dependencies checked.",
@@ -262,6 +6269,190 @@
         "summary": "Readiness probe",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/reference/crops": {
+      "get": {
+        "description": "The seeded global crop catalog with the agronomic constants used by the risk engine. Read-only reference data, shared by every farm.",
+        "operationId": "list_crops_api_v1_reference_crops_get",
+        "parameters": [
+          {
+            "description": "Filter by category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CropCategory"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by category.",
+              "title": "Category"
+            }
+          },
+          {
+            "description": "Filter by season.",
+            "in": "query",
+            "name": "season",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Season"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by season.",
+              "title": "Season"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CropList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Crop catalog",
+        "tags": [
+          "reference"
+        ]
+      }
+    },
+    "/api/v1/reference/enums": {
+      "get": {
+        "description": "Every domain enum with display labels. Render dropdowns from this rather than hardcoding values \u2014 new enum members then appear without a frontend change.",
+        "operationId": "get_enums_api_v1_reference_enums_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnumCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Enum catalog",
+        "tags": [
+          "reference"
+        ]
+      }
+    },
+    "/api/v1/reference/locations": {
+      "get": {
+        "description": "Resolves a place name to coordinates for farm registration. The frontend must not call a geocoding provider directly \u2014 the backend is the only integration layer.\n\nCheck `meta.mode`: `simulated` means these are not real geocoder results.",
+        "operationId": "search_locations_api_v1_reference_locations_get",
+        "parameters": [
+          {
+            "description": "Place name to search.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Place name to search.",
+              "maxLength": 120,
+              "minLength": 2,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Geocode a place name",
+        "tags": [
+          "reference"
         ]
       }
     }

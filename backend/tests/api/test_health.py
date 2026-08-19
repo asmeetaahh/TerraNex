@@ -31,9 +31,7 @@ async def test_every_response_carries_request_id(client: AsyncClient, api_prefix
 
 
 async def test_client_supplied_request_id_is_echoed(client: AsyncClient, api_prefix: str) -> None:
-    resp = await client.get(
-        f"{api_prefix}/health", headers={"X-Request-Id": "req_from_frontend"}
-    )
+    resp = await client.get(f"{api_prefix}/health", headers={"X-Request-Id": "req_from_frontend"})
     assert resp.headers["X-Request-Id"] == "req_from_frontend"
 
 

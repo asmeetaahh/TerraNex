@@ -102,18 +102,36 @@ The ones that matter on day one:
 
 ## Frontend — quick start
 
+> `frontend/` is currently an empty placeholder. The frontend developer owns it and
+> scaffolds the app there; the backend never writes into it.
+
+**First time only** — scaffold the app (frontend dev):
+
+```bash
+cd frontend
+npm create vite@latest . -- --template react-ts
+npm install
+npm install -D tailwindcss @tailwindcss/vite
+npm run dev                   # http://localhost:5173
+```
+
+**Thereafter:**
+
 ```bash
 cd frontend
 npm install
-npm run dev                   # http://localhost:5173
+npm run dev
 ```
 
 Create `frontend/.env.local`:
 
 ```
 VITE_API_BASE_URL=http://localhost:8000/api/v1
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_ANON_KEY=...
+
+# Not needed yet — the backend runs with ENABLE_AUTH=false, so every request is
+# attributed to a seeded demo user. Fill these in when auth is switched on.
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
 ```
 
 ### Generating typed API bindings

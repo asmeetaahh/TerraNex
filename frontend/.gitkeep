@@ -1,0 +1,8 @@
+Placeholder so this directory exists in a fresh clone.
+
+frontend/ is owned entirely by the frontend developer. The backend does not create,
+modify, or scaffold anything inside it beyond this file, which may be deleted once
+the Vite app is scaffolded here.
+
+Setup instructions: ../README.md
+API contract:       ../docs/API_CONTRACT.md
