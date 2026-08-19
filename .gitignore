@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Claude Code instructions
+CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build files
+dist/
+build/
+.vite/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
