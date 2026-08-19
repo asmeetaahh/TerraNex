@@ -1,0 +1,65 @@
+[project]
+name = "terranex-backend"
+version = "0.1.0"
+description = "TerraNex — AI-powered agricultural intelligence API"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    # --- web framework ---
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",      # multipart/form-data for crop-image upload
+    # --- config & validation ---
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    # --- persistence (Phase 2) ---
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "psycopg[binary]>=3.2.0",
+    # --- external providers (Phase 3) ---
+    "httpx>=0.27.0",
+    "cachetools>=5.5.0",
+    "tenacity>=9.0.0",
+    # --- auth (Phase 2) ---
+    "pyjwt[crypto]>=2.10.0",
+    # --- rules & AI (Phase 4-6) ---
+    "pyyaml>=6.0.2",
+    "google-genai>=0.3.0",
+    "pillow>=11.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "respx>=0.21.1",                 # httpx mocking for provider tests
+    "ruff>=0.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+markers = [
+    "live: hits real external APIs; deselected by default (run with -m live)",
+]
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+ignore = ["B008"]                    # FastAPI Depends() in defaults is idiomatic
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

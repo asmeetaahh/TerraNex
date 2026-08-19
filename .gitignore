@@ -1,27 +1,51 @@
-# Dependencies
-node_modules/
-
-# Environment variables / secrets
+# ---- Secrets (NEVER commit) ----
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
-# Claude Code instructions
-CLAUDE.md
-
-# Python
+# ---- Python / backend ----
 __pycache__/
 *.py[cod]
+*$py.class
 .venv/
 venv/
-
-# Build files
-dist/
+.Python
 build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite3
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+dist-ssr/
 .vite/
+*.local
+.eslintcache
 
-# macOS
+# ---- Editors / OS ----
 .DS_Store
+Thumbs.db
+.idea/
+*.swp
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 
-# Logs
+# ---- Logs / scratch ----
 *.log
+npm-debug.log*
+logs/
+tmp/
+scratch/
+
+# ---- Claude local settings ----
+.claude/

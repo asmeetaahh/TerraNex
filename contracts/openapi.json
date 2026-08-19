@@ -1,0 +1,269 @@
+{
+  "components": {
+    "schemas": {
+      "DependencyStatus": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "name": {
+            "examples": [
+              "database"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded",
+              "unavailable",
+              "not_configured"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "DependencyStatus",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "description": "Stable machine-readable error code. Branch on this, never on `message`.",
+            "examples": [
+              "FARM_NOT_FOUND"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "description": "Structured context. For 422 this contains `fields: ErrorField[]`.",
+            "title": "Details",
+            "type": "object"
+          },
+          "message": {
+            "description": "Human-readable explanation. May change without notice.",
+            "examples": [
+              "Farm 9f8e\u2026 does not exist or is not accessible."
+            ],
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Correlation id, also returned in the X-Request-Id header.",
+            "examples": [
+              "req_01hzy8k3m2n4p5q6"
+            ],
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The one and only error shape returned by every 4xx/5xx response.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Liveness: the process is up and serving.",
+        "properties": {
+          "environment": {
+            "examples": [
+              "local"
+            ],
+            "title": "Environment",
+            "type": "string"
+          },
+          "service": {
+            "examples": [
+              "TerraNex API"
+            ],
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "version": {
+            "examples": [
+              "0.1.0"
+            ],
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "version",
+          "environment",
+          "timestamp"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "description": "Readiness: the process is up *and* its dependencies are reachable.",
+        "properties": {
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/DependencyStatus"
+            },
+            "title": "Dependencies",
+            "type": "array"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "environment",
+          "timestamp",
+          "dependencies"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "\n**TerraNex** is the central intelligence layer for agricultural decision support.\n\nIt fuses farm, crop, soil, weather and vegetation data with AI reasoning to produce\nfarm health analysis, weather and water risk, disease risk, agricultural advisories,\ncrop and regenerative-agriculture recommendations, and multimodal crop-image diagnosis.\n\n### For frontend developers\n\n* Every endpoint lives under `/api/v1`. Field casing is `snake_case` throughout.\n* Every failure returns the same envelope:\n  `{\"error\": {\"code\", \"message\", \"details\", \"request_id\"}}`.\n  **Branch on `code`** \u2014 `message` is for humans and may change.\n* Every response carries `X-Request-Id`; include it when reporting a bug.\n* Generate typed bindings instead of hand-writing them:\n  `npx openapi-typescript ../contracts/openapi.json -o src/api/types.gen.ts`\n",
+    "title": "TerraNex API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "description": "Returns 200 whenever the API process is running. No dependencies checked.",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "description": "Reports the reachability of each dependency (database, AI provider, external data providers). Always returns 200 \u2014 read `status` to decide.",
+        "operationId": "readiness_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error envelope"
+          }
+        },
+        "summary": "Readiness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}
