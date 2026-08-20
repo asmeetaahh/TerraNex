@@ -42,7 +42,7 @@ async def get_weather(
     forecast_days: Annotated[int, Query(ge=1, le=16)] = 7,
     history_days: Annotated[int, Query(ge=1, le=90)] = 30,
 ) -> WeatherBundle:
-    return environment_service.weather_for_farm(
+    return await environment_service.weather_for_farm(
         farm_id, forecast_days=forecast_days, history_days=history_days
     )
 
@@ -58,7 +58,7 @@ async def get_weather(
     responses=_NOT_FOUND,
 )
 async def get_soil(farm_id: FarmId) -> SoilProfile:
-    return environment_service.soil_for_farm(farm_id)
+    return await environment_service.soil_for_farm(farm_id)
 
 
 @router.get(
@@ -76,4 +76,4 @@ async def get_vegetation(
     farm_id: FarmId,
     days: Annotated[int, Query(ge=7, le=365)] = 90,
 ) -> VegetationSeries:
-    return environment_service.vegetation_for_farm(farm_id, days=days)
+    return await environment_service.vegetation_for_farm(farm_id, days=days)

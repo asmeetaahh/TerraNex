@@ -29,7 +29,8 @@ import math
 import random
 from datetime import UTC, date, datetime, timedelta
 
-from app.schemas.common import DataMode, DataSourceMeta
+from app.providers.base import simulated_meta as provider_simulated_meta
+from app.schemas.common import DataSourceMeta
 from app.schemas.enums import SoilTexture
 
 SIMULATED_SOURCE = "simulated"
@@ -77,14 +78,10 @@ def seeded_rng(*parts: object) -> random.Random:
 def simulated_meta(note: str | None = None) -> DataSourceMeta:
     """Provenance for any simulated payload.
 
-    Centralised so no call site can accidentally claim `live` or `cached`.
+    Delegates to the shared provenance factory in `app.providers.base`, which pins
+    both source and mode — so no call site can label generated values as live.
     """
-    return DataSourceMeta(
-        source=SIMULATED_SOURCE,
-        mode=DataMode.simulated,
-        fetched_at=datetime.now(UTC),
-        note=note or "Generated locally by the Phase 3 simulator; not a real observation.",
-    )
+    return provider_simulated_meta(note)
 
 
 def _clamp(value: float, low: float, high: float) -> float:

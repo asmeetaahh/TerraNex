@@ -63,7 +63,7 @@ async def run_analysis(
         bool, Query(description="Bypass the cache and recompute from scratch.")
     ] = False,
 ) -> AnalysisRun:
-    return analysis_service.run_analysis(farm_id, force_refresh=force_refresh)
+    return await analysis_service.run_analysis(farm_id, force_refresh=force_refresh)
 
 
 @router.get(
@@ -125,7 +125,7 @@ async def get_analysis_run(
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
 async def get_dashboard(farm_id: FarmId) -> FarmDashboard:
-    return analysis_service.dashboard(farm_id)
+    return await analysis_service.dashboard(farm_id)
 
 
 # --------------------------------------------------------------------------

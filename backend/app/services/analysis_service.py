@@ -17,7 +17,7 @@ crop and the current date. Re-running without `force_refresh` returns the *same 
 run*; with `force_refresh` a new run id is minted whose scores are identical.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from app.core.errors import NoAnalysisYetError
@@ -29,7 +29,7 @@ from app.schemas.analysis import (
     AnalysisRunSummary,
     FarmDashboard,
 )
-from app.schemas.common import DataSourceMeta, RiskLevel, ScoreBand, ScoredFactor
+from app.schemas.common import DataMode, DataSourceMeta, RiskLevel, ScoreBand, ScoredFactor
 from app.schemas.crop import Crop
 from app.schemas.enums import (
     AdvisoryCategory,
@@ -48,15 +48,10 @@ from app.schemas.risk import DiseaseRisk, DiseaseRiskItem, WaterRisk, WeatherRis
 from app.schemas.soil import SoilAssessment
 from app.schemas.vegetation import CropHealth
 from app.services import environment_service
+from app.services.environment_service import EnvironmentSnapshot
 from app.services.farm_service import _to_farm, _to_farm_crop, primary_planting, require_farm
 from app.services.reference_service import _ensure_catalog, paginate
-from app.services.simulation import (
-    seeded_rng,
-    simulate_days,
-    simulate_ndvi,
-    simulate_soil,
-    simulated_meta,
-)
+from app.services.simulation import seeded_rng
 
 PROMPT_VERSION = "phase3-fixture-v1"
 
@@ -233,9 +228,9 @@ def _clamp(value: float, low: float, high: float) -> float:
 # --------------------------------------------------------------------------
 
 
-def _weather_risk(record: FarmRecord, crop: Crop | None, today: date) -> WeatherRisk:
+def _weather_risk(env: EnvironmentSnapshot, crop: Crop | None) -> WeatherRisk:
     window = 7
-    forecast = simulate_days(record.latitude, record.longitude, today, window)
+    forecast = env.forecast(window)
 
     hot_threshold = crop.optimal_temp_max_c if crop and crop.optimal_temp_max_c else 32.0
     cold_threshold = 2.0
@@ -322,13 +317,11 @@ def _weather_risk(record: FarmRecord, crop: Crop | None, today: date) -> Weather
 
 
 def _water_risk(
-    record: FarmRecord, crop: Crop | None, stage: GrowthStage, today: date
+    env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None, stage: GrowthStage
 ) -> WaterRisk:
     lookback, lookahead = 30, 7
-    history = simulate_days(
-        record.latitude, record.longitude, today - timedelta(days=lookback), lookback
-    )
-    forecast = simulate_days(record.latitude, record.longitude, today, lookahead)
+    history = env.history(lookback)
+    forecast = env.forecast(lookahead)
     window = history + forecast
 
     kc = _KC_BY_STAGE.get(stage, 0.85)
@@ -337,7 +330,7 @@ def _water_risk(
     balance = precipitation - demand
     deficit = max(0.0, -balance)
 
-    soil = simulate_soil(record.latitude, record.longitude)
+    soil = env.soil
     capacity = soil.water_holding_capacity_mm or 50.0
 
     relief = _IRRIGATION_RELIEF.get(str(record.irrigation_type), 0.0)
@@ -413,8 +406,9 @@ def _water_risk(
     )
 
 
-def _disease_risk(record: FarmRecord, crop: Crop | None, today: date) -> DiseaseRisk:
-    window = simulate_days(record.latitude, record.longitude, today, 7)
+def _disease_risk(env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None) -> DiseaseRisk:
+    today = env.today
+    window = env.forecast(7)
 
     humid_days = sum(1 for d in window if d.humidity_pct >= 80)
     mild_wet_days = sum(1 for d in window if 15 <= d.temp_mean_c <= 27 and d.humidity_pct >= 75)
@@ -491,8 +485,8 @@ def _disease_risk(record: FarmRecord, crop: Crop | None, today: date) -> Disease
     )
 
 
-def _soil_assessment(record: FarmRecord, crop: Crop | None) -> SoilAssessment:
-    soil = simulate_soil(record.latitude, record.longitude)
+def _soil_assessment(env: EnvironmentSnapshot, crop: Crop | None) -> SoilAssessment:
+    soil = env.soil
 
     ph_min = crop.ph_min if crop and crop.ph_min else 5.5
     ph_max = crop.ph_max if crop and crop.ph_max else 7.5
@@ -587,12 +581,21 @@ def _soil_assessment(record: FarmRecord, crop: Crop | None) -> SoilAssessment:
 
 
 def _crop_health(
-    record: FarmRecord, crop: Crop | None, planting, stage: GrowthStage, today: date
+    env: EnvironmentSnapshot, crop: Crop | None, planting, stage: GrowthStage
 ) -> CropHealth:
+    today = env.today
     has_crop = planting is not None
-    ndvi_now = simulate_ndvi(record.latitude, record.longitude, today, has_crop=has_crop)
-    ndvi_then = simulate_ndvi(
-        record.latitude, record.longitude, today - timedelta(days=30), has_crop=has_crop
+
+    # Read the vegetation series the snapshot already holds, so the health panel and
+    # GET /vegetation can never disagree.
+    ndvi_now = env.vegetation[-1][1] if env.vegetation else 0.0
+    ndvi_then = next(
+        (
+            value
+            for sample_date, value in reversed(env.vegetation)
+            if sample_date <= today - timedelta(days=30)
+        ),
+        env.vegetation[0][1] if env.vegetation else 0.0,
     )
 
     change = ((ndvi_now - ndvi_then) / abs(ndvi_then) * 100) if ndvi_then else 0.0
@@ -606,11 +609,17 @@ def _crop_health(
     gdd_accumulated = None
     if planting is not None and planting.planting_date is not None:
         days_since_planting = max(0, (today - planting.planting_date).days)
-        history = simulate_days(
-            record.latitude, record.longitude, planting.planting_date, days_since_planting or 1
-        )
+        # Accumulate over the overlap between the growing period and the snapshot
+        # window. A crop planted before the window starts reports the GDD actually
+        # observed rather than an extrapolation.
+        since_planting = env.between(planting.planting_date, today)
         base = crop.base_temp_c if crop and crop.base_temp_c is not None else 10.0
-        gdd_accumulated = round(sum(max(0.0, d.temp_mean_c - base) for d in history), 1)
+        gdd_accumulated = round(
+            sum(
+                max(0.0, d.temp_mean_c - base) for d in since_planting if d.temp_mean_c is not None
+            ),
+            1,
+        )
     if planting is not None and planting.expected_harvest_date is not None:
         days_to_harvest = (planting.expected_harvest_date - today).days
 
@@ -794,13 +803,18 @@ def _advisories(
     ]
 
 
-def _crop_recommendations(record: FarmRecord, current_code: str | None, limit: int = 5):
+def _crop_recommendations(env: EnvironmentSnapshot, current_code: str | None, limit: int = 5):
     _ensure_catalog()
-    soil = simulate_soil(record.latitude, record.longitude)
-    today = datetime.now(UTC).date()
-    year = simulate_days(record.latitude, record.longitude, today - timedelta(days=180), 180)
-    mean_temp = sum(d.temp_mean_c for d in year) / len(year)
-    seasonal_rain = sum(d.precipitation_mm for d in year) * 2  # scale a half-year to annual
+    soil = env.soil
+
+    # Use every past day the snapshot holds, then annualise. The window is bounded by
+    # what the weather provider can supply, so scaling by its actual length keeps the
+    # figure comparable regardless of provider.
+    history = env.history(env.available_history_days) or env.daily
+    temps = [d.temp_mean_c for d in history if d.temp_mean_c is not None]
+    mean_temp = sum(temps) / len(temps) if temps else 20.0
+    observed_rain = sum(d.precipitation_mm for d in history)
+    seasonal_rain = observed_rain * (365 / max(len(history), 1))
 
     scored: list[tuple[float, Crop, list[str], list[str], list[ScoredFactor]]] = []
     for crop in store.crops.values():
@@ -926,6 +940,7 @@ def _crop_recommendations(record: FarmRecord, current_code: str | None, limit: i
 
 
 def _regenerative_recommendations(
+    env: EnvironmentSnapshot,
     record: FarmRecord,
     soil_assessment: SoilAssessment,
     water: WaterRisk,
@@ -933,7 +948,7 @@ def _regenerative_recommendations(
     weather: WeatherRisk,
     limit: int = 5,
 ):
-    soil = simulate_soil(record.latitude, record.longitude)
+    soil = env.soil
 
     signals = {
         "low_carbon": 100 if soil.organic_carbon_pct < 1.5 else 40,
@@ -987,9 +1002,28 @@ def _regenerative_recommendations(
 # --------------------------------------------------------------------------
 
 
-def _build_run(record: FarmRecord) -> AnalysisRun:
+def _provenance_sentence(env: EnvironmentSnapshot) -> str:
+    """State plainly what the figures rest on, so the headline can never imply the
+    inputs were measured when they were generated (or the reverse)."""
+    weather_mode = env.weather_meta.mode
+    if weather_mode in (DataMode.live, DataMode.cached):
+        return (
+            f"Weather is real data from {env.weather_meta.source}; "
+            "soil and vegetation figures are simulated."
+        )
+    if weather_mode is DataMode.unavailable:
+        return "Weather data was unavailable; figures below are incomplete."
+    return "All figures are simulated, not live measurements."
+
+
+def _build_run(record: FarmRecord, env: EnvironmentSnapshot) -> AnalysisRun:
+    """Score one farm from a single environmental snapshot.
+
+    Every section below reads `env`. Nothing regenerates weather, soil or vegetation,
+    so the analysis and the environment endpoints are guaranteed to describe the same
+    conditions — and the run's provenance is exactly the snapshot's provenance.
+    """
     started = datetime.now(UTC)
-    today = started.date()
 
     planting = primary_planting(record.id)
     crop = None
@@ -1000,11 +1034,11 @@ def _build_run(record: FarmRecord) -> AnalysisRun:
         crop = get_crop(planting.crop_id)
         stage = GrowthStage(planting.growth_stage)
 
-    weather = _weather_risk(record, crop, today)
-    water = _water_risk(record, crop, stage, today)
-    disease = _disease_risk(record, crop, today)
-    soil_assessment = _soil_assessment(record, crop)
-    crop_health = _crop_health(record, crop, planting, stage, today)
+    weather = _weather_risk(env, crop)
+    water = _water_risk(env, record, crop, stage)
+    disease = _disease_risk(env, record, crop)
+    soil_assessment = _soil_assessment(env, crop)
+    crop_health = _crop_health(env, crop, planting, stage)
 
     factors = [
         ScoredFactor(
@@ -1054,8 +1088,10 @@ def _build_run(record: FarmRecord) -> AnalysisRun:
 
     advisories = _advisories(record.id, run_id, started, weather, water, disease, soil_assessment)
 
-    crop_recs = _crop_recommendations(record, crop.code if crop else None)
-    regen_recs = _regenerative_recommendations(record, soil_assessment, water, disease, weather)
+    crop_recs = _crop_recommendations(env, crop.code if crop else None)
+    regen_recs = _regenerative_recommendations(
+        env, record, soil_assessment, water, disease, weather
+    )
 
     crop_label = crop.name if crop else "no registered crop"
     summary = (
@@ -1063,15 +1099,14 @@ def _build_run(record: FarmRecord) -> AnalysisRun:
         f"{crop_label}. Water risk is {water.level.value}, disease pressure is "
         f"{disease.level.value} and weather risk is {weather.level.value}. "
         f"{len(advisories)} advisory item(s) require attention. "
-        "All figures are simulated Phase 3 fixtures, not live measurements."
+        f"{_provenance_sentence(env)}"
     )
 
     finished = datetime.now(UTC)
-    sources: list[DataSourceMeta] = [
-        simulated_meta("Weather inputs: simulated seasonal climatology."),
-        simulated_meta("Soil inputs: simulated profile classified on the USDA triangle."),
-        simulated_meta("Vegetation inputs: simulated seasonal canopy model."),
-    ]
+
+    # Provenance is the snapshot's provenance verbatim. The run cannot claim its
+    # inputs were live when they were simulated, or the reverse.
+    sources: list[DataSourceMeta] = list(env.sources)
 
     return AnalysisRun(
         id=run_id,
@@ -1082,7 +1117,7 @@ def _build_run(record: FarmRecord) -> AnalysisRun:
         model=None,
         prompt_version=PROMPT_VERSION,
         ai_mode=AIMode.mock,
-        degraded_sources=[],
+        degraded_sources=env.degraded_sources,
         overall_health_score=int(round(overall)),
         overall_band=_band_for(overall),
         summary=summary,
@@ -1099,7 +1134,7 @@ def _build_run(record: FarmRecord) -> AnalysisRun:
     )
 
 
-def run_analysis(farm_id: UUID, *, force_refresh: bool = False) -> AnalysisRun:
+async def run_analysis(farm_id: UUID, *, force_refresh: bool = False) -> AnalysisRun:
     record = require_farm(farm_id)
 
     if not force_refresh:
@@ -1107,7 +1142,8 @@ def run_analysis(farm_id: UUID, *, force_refresh: bool = False) -> AnalysisRun:
         if existing is not None:
             return existing
 
-    run = _build_run(record)
+    env = await environment_service.gather_environment(record)
+    run = _build_run(record, env)
     with store.lock:
         store.analysis_runs[run.id] = run
     return run
@@ -1153,13 +1189,14 @@ def get_run(run_id: UUID) -> AnalysisRun:
     return run
 
 
-def dashboard(farm_id: UUID) -> FarmDashboard:
+async def dashboard(farm_id: UUID) -> FarmDashboard:
     """Never 404s on a missing analysis — returns `has_analysis: false` instead, so
     a newly registered farm renders an empty state rather than an error."""
     record = require_farm(farm_id)
     run = store.latest_run(farm_id)
 
-    weather = environment_service.build_weather(record, forecast_days=7, history_days=30)
+    env = await environment_service.gather_environment(record)
+    weather = environment_service.to_weather_bundle(env, forecast_days=7, history_days=30)
 
     return FarmDashboard(
         farm=_to_farm(record),
@@ -1168,10 +1205,9 @@ def dashboard(farm_id: UUID) -> FarmDashboard:
         analysis=run,
         current_weather=weather.current,
         recent_images=store.images_for_farm(farm_id)[:5],
-        data_freshness=[
-            simulated_meta("Dashboard weather panel: simulated."),
-            simulated_meta("Dashboard analysis panel: simulated Phase 3 fixture."),
-        ],
+        # The dashboard reports the same provenance as the snapshot it was built
+        # from, per panel, so a badge can be rendered accurately for each.
+        data_freshness=list(env.sources),
     )
 
 

@@ -65,4 +65,4 @@ async def search_locations(
     q: Annotated[str, Query(min_length=2, max_length=120, description="Place name to search.")],
     limit: Annotated[int, Query(ge=1, le=25)] = 10,
 ) -> LocationList:
-    return reference_service.search_locations(query=q, limit=limit)
+    return await reference_service.search_locations(query=q, limit=limit)

@@ -11,6 +11,7 @@ from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.db.seed import seed_crops
+from app.providers.http import close_client
 from app.schemas.errors import ErrorResponse
 
 logger = get_logger(__name__)
@@ -51,10 +52,13 @@ async def lifespan(app: FastAPI):
             "auth_enabled": settings.ENABLE_AUTH,
             "cors_origins": settings.CORS_ORIGINS,
             "crops_seeded": crop_count,
-            "data_mode": "simulated",
+            "weather_provider": settings.WEATHER_PROVIDER,
+            "geocoding_provider": settings.GEOCODING_PROVIDER,
         },
     )
     yield
+
+    await close_client()
     logger.info("shutdown")
 
 

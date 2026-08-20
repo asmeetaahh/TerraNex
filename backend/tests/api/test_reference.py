@@ -76,17 +76,33 @@ async def test_geocoding_is_marked_simulated(client: AsyncClient, api_prefix: st
     assert meta["source"] == "simulated"
 
 
-async def test_unknown_place_still_returns_a_usable_coordinate(
+async def test_unknown_place_returns_no_fabricated_coordinates(
     client: AsyncClient, api_prefix: str
 ) -> None:
-    """The picker must never come back empty, but the note must admit what happened."""
+    """The defect this phase closes.
+
+    An unresolvable place must yield nothing. A synthesised coordinate is
+    indistinguishable from a real one downstream, so every soil, weather and risk
+    figure computed from it would be silently wrong for a place the user believes
+    they selected.
+    """
     resp = await client.get(f"{api_prefix}/reference/locations", params={"q": "Zzyzx Hollow"})
 
     assert resp.status_code == 200
     body = resp.json()
-    assert len(body["items"]) == 1
-    assert -90 <= body["items"][0]["latitude"] <= 90
-    assert "synthetic" in body["meta"]["note"].lower()
+    assert body["items"] == []
+    assert body["total"] == 0
+
+
+async def test_no_synthetic_location_marker_anywhere(client: AsyncClient, api_prefix: str) -> None:
+    """The old fallback labelled invented points '(synthetic location)'. Nothing may
+    reintroduce that, under any query."""
+    for query in ["Zzyzx Hollow", "Qqqqqq", "Atlantis", "asdfghjkl"]:
+        resp = await client.get(f"{api_prefix}/reference/locations", params={"q": query})
+        assert resp.status_code == 200
+        payload = resp.text.lower()
+        assert "synthetic" not in payload
+        assert resp.json()["items"] == []
 
 
 async def test_geocoding_is_deterministic(client: AsyncClient, api_prefix: str) -> None:

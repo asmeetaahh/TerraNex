@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     AI_TEMPERATURE: float = 0.3
 
     # ---- External providers ----
+    # Default to the deterministic simulator: a process with no configuration makes
+    # no outbound calls, so tests, CI and offline development are safe by default.
+    # Real providers are opted into explicitly via the environment (see .env.example).
+    WEATHER_PROVIDER: Literal["open_meteo", "simulated"] = "simulated"
+    GEOCODING_PROVIDER: Literal["open_meteo", "simulated"] = "simulated"
+    # When a live weather provider fails, fall back to the simulator (clearly marked
+    # `simulated`) instead of returning `unavailable`. Useful for demos; never
+    # relabels the data.
+    WEATHER_FALLBACK_TO_SIMULATION: bool = True
+
     PROVIDER_TIMEOUT_S: float = 8.0
     PROVIDER_MAX_RETRIES: int = 2
     CACHE_TTL_WEATHER_S: int = 1800

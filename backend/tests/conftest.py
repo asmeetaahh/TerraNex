@@ -14,6 +14,11 @@ os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("AI_PROVIDER", "mock")
 os.environ.setdefault("ENABLE_AUTH", "false")
 os.environ.setdefault("SEED_DEMO_DATA", "false")
+# Pin both providers to the simulator so the suite is offline and deterministic by
+# default. Provider tests opt into `open_meteo` explicitly and mock the transport
+# with respx, so no test ever touches the network.
+os.environ.setdefault("WEATHER_PROVIDER", "simulated")
+os.environ.setdefault("GEOCODING_PROVIDER", "simulated")
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
@@ -21,6 +26,7 @@ from app.core.config import settings  # noqa: E402
 from app.db.memory import store as memory_store  # noqa: E402
 from app.db.seed import seed_crops  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
+from app.providers.cache import clear_all_caches  # noqa: E402
 
 # A real place, used so simulated values are anchored somewhere plausible.
 DEMO_FARM = {
@@ -48,8 +54,12 @@ def clean_store():
     """
     seed_crops()
     memory_store.reset()
+    # Provider caches are process-level; a hit from a previous test would mask a
+    # missing respx mock and make results order-dependent.
+    clear_all_caches()
     yield
     memory_store.reset()
+    clear_all_caches()
 
 
 @pytest.fixture
