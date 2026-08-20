@@ -139,7 +139,10 @@ class DailyObservation:
     temp_max_c: float | None = None
     temp_mean_c: float | None = None
     humidity_pct: float | None = None
-    precipitation_mm: float = 0.0
+    # Nullable like every other measurement: an absent reading means "not measured",
+    # not "no rain". Defaulting it to 0.0 invented dry weather and biased the water
+    # balance toward a false deficit. The frozen contract already permits null here.
+    precipitation_mm: float | None = None
     precipitation_hours: float | None = None
     wind_kmh: float | None = None
     et0_mm: float | None = None

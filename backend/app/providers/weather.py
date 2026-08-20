@@ -189,7 +189,7 @@ def _parse_daily(payload: dict[str, Any]) -> list[DailyObservation]:
                 temp_max_c=high,
                 temp_mean_c=mean,
                 humidity_pct=columns["relative_humidity_2m_mean"][index],
-                precipitation_mm=float(precipitation) if precipitation is not None else 0.0,
+                precipitation_mm=float(precipitation) if precipitation is not None else None,
                 precipitation_hours=columns["precipitation_hours"][index],
                 wind_kmh=columns["wind_speed_10m_max"][index],
                 et0_mm=columns["et0_fao_evapotranspiration"][index],
@@ -408,7 +408,9 @@ def simulated_observations(
             wind_kmh=day.wind_kmh,
             et0_mm=round(day.et0_mm / 24, 3),
             radiation_w_m2=None,
-            soil_moisture_m3m3=round(max(0.05, min(0.45, 0.18 + day.precipitation_mm * 0.004)), 3),
+            soil_moisture_m3m3=round(
+                max(0.05, min(0.45, 0.18 + (day.precipitation_mm or 0.0) * 0.004)), 3
+            ),
             soil_temperature_c=round(temp - 1.5, 1),
         )
         for ts, day, temp, humidity, precip in simulation.simulate_hours(

@@ -222,9 +222,16 @@ def _vegetation_dates(today: date, days: int = VEGETATION_WINDOW_DAYS) -> list[d
 
 
 def _longest_dry_spell(days: list[DailyObservation]) -> int:
+    """Longest run of days that reported little or no rain.
+
+    A day with no reading breaks the run rather than extending it — an unmeasured
+    day is not evidence of dryness.
+    """
     longest = current = 0
     for day in days:
-        if day.precipitation_mm <= 0.2:
+        if day.precipitation_mm is None:
+            current = 0
+        elif day.precipitation_mm <= 0.2:
             current += 1
             longest = max(longest, current)
         else:
@@ -293,12 +300,19 @@ def to_weather_bundle(
         window_days=history_days,
         start_date=history_start,
         end_date=env.today - timedelta(days=1) if history_days else env.today,
-        total_precipitation_mm=round(sum(d.precipitation_mm for d in history), 1),
+        # Sums only the days that reported rainfall. The field is required by the
+        # contract, so an all-unknown window reports 0.0 mm across zero rain days —
+        # `rain_days` alongside it shows nothing was observed.
+        total_precipitation_mm=round(
+            sum(d.precipitation_mm for d in history if d.precipitation_mm is not None), 1
+        ),
         total_et0_mm=round(sum(et0_values), 1) if et0_values else None,
         mean_temp_c=round(sum(temps) / len(temps), 1) if temps else None,
         max_temp_c=max((d.temp_max_c for d in history if d.temp_max_c is not None), default=None),
         min_temp_c=min((d.temp_min_c for d in history if d.temp_min_c is not None), default=None),
-        rain_days=sum(1 for d in history if d.precipitation_mm > 0.2),
+        rain_days=sum(
+            1 for d in history if d.precipitation_mm is not None and d.precipitation_mm > 0.2
+        ),
         longest_dry_spell_days=_longest_dry_spell(history),
     )
 
