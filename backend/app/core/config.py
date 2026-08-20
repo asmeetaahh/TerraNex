@@ -61,6 +61,11 @@ class Settings(BaseSettings):
 
     PROVIDER_TIMEOUT_S: float = 8.0
     PROVIDER_MAX_RETRIES: int = 2
+    # Wall-clock budget for one provider operation, covering every attempt and the
+    # backoff between them. Without it, 3 attempts x 8s + backoff let a single
+    # unresponsive upstream block a request for ~25s per call — and weather makes
+    # two, so a dashboard could hang for ~33s. This bounds the whole operation.
+    PROVIDER_DEADLINE_S: float = 12.0
     CACHE_TTL_WEATHER_S: int = 1800
     CACHE_TTL_SOIL_S: int = 2_592_000
     CACHE_TTL_VEGETATION_S: int = 21_600

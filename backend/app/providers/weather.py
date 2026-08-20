@@ -31,7 +31,7 @@ from app.providers.base import (
     WeatherObservations,
 )
 from app.providers.cache import build_key, coord_key, get_cache
-from app.providers.http import get_json
+from app.providers.http import get_json, provider_deadline
 from app.services import simulation
 
 logger = get_logger(__name__)
@@ -311,7 +311,21 @@ async def _fetch_hourly(latitude: float, longitude: float) -> ProviderResult[dic
 async def open_meteo_observations(
     latitude: float, longitude: float
 ) -> ProviderResult[WeatherObservations]:
-    """Fetch the canonical window from Open-Meteo at these exact coordinates."""
+    """Fetch the canonical window from Open-Meteo at these exact coordinates.
+
+    The daily and hourly documents are one logical operation, so they share a single
+    wall-clock budget: an unresponsive upstream cannot consume the deadline twice.
+    The budget is opened here rather than in the service layer so it covers only real
+    network work — the simulated provider returns from `get_observations` before this
+    function is reached and never engages the deadline machinery at all.
+    """
+    with provider_deadline():
+        return await _open_meteo_within_budget(latitude, longitude)
+
+
+async def _open_meteo_within_budget(
+    latitude: float, longitude: float
+) -> ProviderResult[WeatherObservations]:
     daily_cache = get_cache("weather_daily", settings.CACHE_TTL_WEATHER_S)
     hourly_cache = get_cache("weather_hourly", settings.CACHE_TTL_WEATHER_S)
     key = build_key(coord_key(latitude, longitude))
