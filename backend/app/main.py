@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
-from app.db.seed import seed_crops
+from app.db.seed import seed_crops, seed_demo_farms
 from app.providers.http import close_client
 from app.schemas.errors import ErrorResponse
 
@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
     # database migration in the persistence phase.
     crop_count = seed_crops()
 
+    # Demo farms are opt-in. Without them a fresh process serves an empty farm
+    # list, which is correct but leaves every downstream panel with nothing to
+    # render. Seeding is idempotent, so a reload adds nothing.
+    demo_farm_count = seed_demo_farms() if settings.SEED_DEMO_DATA else 0
+
     logger.info(
         "startup",
         extra={
@@ -52,6 +57,8 @@ async def lifespan(app: FastAPI):
             "auth_enabled": settings.ENABLE_AUTH,
             "cors_origins": settings.CORS_ORIGINS,
             "crops_seeded": crop_count,
+            "demo_farms_seeded": demo_farm_count,
+            "seed_demo_data": settings.SEED_DEMO_DATA,
             "weather_provider": settings.WEATHER_PROVIDER,
             "geocoding_provider": settings.GEOCODING_PROVIDER,
         },
