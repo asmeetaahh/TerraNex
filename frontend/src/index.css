@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/*
+  TerraNex is a dark-only interface — there is no light theme to swap to,
+  so tokens are defined once rather than behind a media query. Palette and
+  glow language follow design/TerraNex-template.png: a near-black canvas
+  with a vivid, glowing lime accent.
+*/
+@theme {
+  --font-sans: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Lime — the brand hue. Vivid and glowing, matching the approved template. */
+  --color-lime-50: #eefce4;
+  --color-lime-100: #d9f8bd;
+  --color-lime-200: #bdf08c;
+  --color-lime-300: #9fe35c;
+  --color-lime-400: #8fe03c;
+  --color-lime-500: #7bcc2a;
+  --color-lime-600: #62a821;
+  --color-lime-700: #4c821c;
+  --color-lime-800: #3c661c;
+  --color-lime-900: #30521b;
+
+  /* Charcoal canvas, near-black with a cool green undertone */
+  --color-canvas: #06090a;
+  --color-surface: #0d1512;
+  --color-surface-raised: #121c17;
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-strong: rgba(159, 227, 92, 0.18);
+
+  --color-ink: #f5f7f2;
+  --color-ink-muted: #94a396;
+  --color-ink-faint: #5c6b5e;
+
+  /* Status — reserved, never reused for decoration */
+  --color-status-good: #8fe03c;
+  --color-status-warning: #f6bb32;
+  --color-status-serious: #f0973a;
+  --color-status-critical: #f2555c;
+
+  /* meta.mode badges (docs/API_CONTRACT.md §4) */
+  --color-mode-live: #8fe03c;
+  --color-mode-cached: #6fb7e8;
+  --color-mode-simulated: #f6bb32;
+  --color-mode-unavailable: #f2555c;
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, color-mix(in oklab, var(--color-lime-500) 7%, transparent), transparent),
+      radial-gradient(ellipse 700px 500px at 100% 15%, color-mix(in oklab, var(--color-lime-500) 5%, transparent), transparent),
+      var(--color-canvas);
+    color: var(--color-ink);
+    font-feature-settings: 'ss01' 1;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-lime-500) 35%, transparent);
+    color: var(--color-ink);
+  }
+}
+
+@layer utilities {
+  /* The template's signature glow — a soft lime halo around hero elements. */
+  .glow-lime {
+    box-shadow: 0 0 0 1px var(--color-border), 0 12px 40px -14px
+      color-mix(in oklab, var(--color-lime-500) 55%, transparent);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
