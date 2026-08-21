@@ -5,6 +5,7 @@ import { FarmHealthPage } from './pages/FarmHealthPage'
 import { CropIntelligencePage } from './pages/CropIntelligencePage'
 import { DiagnosisPage } from './pages/DiagnosisPage'
 import { RecommendationsPage } from './pages/RecommendationsPage'
+import { WeatherRisksPage } from './pages/WeatherRisksPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
         <Route path="farms/crop-intelligence" element={<CropIntelligencePage />} />
         <Route path="farms/diagnosis" element={<DiagnosisPage />} />
         <Route path="farms/recommendations" element={<RecommendationsPage />} />
+        <Route path="farms/weather-risks" element={<WeatherRisksPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
