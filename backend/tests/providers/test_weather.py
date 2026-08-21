@@ -431,3 +431,81 @@ async def test_simulated_provider_spans_the_canonical_window(monkeypatch) -> Non
 
     expected = weather.CANONICAL_PAST_DAYS + weather.CANONICAL_FORECAST_DAYS
     assert len(result.data.daily) == expected
+
+
+# --------------------------------------------------------------------------
+# Default provider selection
+# --------------------------------------------------------------------------
+
+
+async def test_default_configuration_routes_to_the_real_weather_provider(monkeypatch) -> None:
+    """With defaults in force, the real Open-Meteo path runs — not the simulator.
+
+    Asserts the branch actually taken rather than only the setting's value.
+    """
+    from app.core.config import Settings
+
+    declared = Settings.model_fields["WEATHER_PROVIDER"].default
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", declared)
+
+    with respx.mock:
+        route = _route()
+        result = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert route.called, "the default configuration did not reach Open-Meteo"
+    assert result.meta.source == "open-meteo"
+    assert result.meta.mode is DataMode.live
+
+
+async def test_explicit_simulated_still_makes_no_outbound_call(monkeypatch) -> None:
+    """The simulator remains selectable and entirely offline."""
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "simulated")
+
+    with respx.mock:  # any outbound request would raise here
+        result = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert result.meta.mode is DataMode.simulated
+    assert result.meta.source == "simulated"
+    assert result.data.daily
+
+
+async def test_default_path_preserves_the_provider_deadline(monkeypatch) -> None:
+    """P0-2 behaviour must survive the default flip: the real path still runs inside
+    a wall-clock budget rather than restarting it per attempt."""
+    from app.core.config import Settings
+    from app.providers.http import remaining_budget
+
+    declared = Settings.model_fields["WEATHER_PROVIDER"].default
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", declared)
+
+    seen: list[float | None] = []
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        seen.append(remaining_budget())
+        if "daily" in request.url.params:
+            return httpx.Response(200, json=_daily_payload())
+        return httpx.Response(200, json=_hourly_payload())
+
+    with respx.mock:
+        respx.get(FORECAST_URL).mock(side_effect=responder)
+        await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert seen, "no outbound call was made"
+    assert all(b is not None for b in seen), "the default path ran without a budget open"
+
+
+async def test_default_path_preserves_caching(monkeypatch) -> None:
+    """Cache behaviour is unchanged by the default flip."""
+    from app.core.config import Settings
+
+    declared = Settings.model_fields["WEATHER_PROVIDER"].default
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", declared)
+
+    with respx.mock:
+        route = _route()
+        first = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+        second = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert first.meta.mode is DataMode.live
+    assert second.meta.mode is DataMode.cached
+    assert route.call_count == 2, "two documents fetched once each, then served from cache"

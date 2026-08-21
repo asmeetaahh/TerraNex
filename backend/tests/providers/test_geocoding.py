@@ -216,18 +216,77 @@ async def test_simulated_provider_never_reaches_the_network(monkeypatch) -> None
 # --------------------------------------------------------------------------
 
 
-def test_provider_defaults_are_simulated() -> None:
-    """An unconfigured process must make no outbound calls.
+def test_provider_defaults_are_the_real_providers() -> None:
+    """An unconfigured process must resolve real places and real weather.
 
-    Open-Meteo is opted into explicitly through the environment; if this default
-    ever flips back, a fresh clone or a CI job would start hitting the network.
+    TerraNex is for farms anywhere. The simulator models one climate archetype and
+    applies it worldwide, so defaulting to it would give a user in Riyadh or Cairo
+    confidently wrong rainfall. Open-Meteo needs no API key, so the real path works
+    on a fresh clone with no configuration.
     """
     from app.core.config import Settings
 
-    defaults = Settings(_env_file=None)
+    # The *declared* default, not a resolved instance: `_env_file=None` disables the
+    # .env file but pydantic-settings still reads the process environment, which the
+    # suite pins to `simulated`.
+    assert Settings.model_fields["WEATHER_PROVIDER"].default == "open_meteo"
+    assert Settings.model_fields["GEOCODING_PROVIDER"].default == "open_meteo"
 
-    assert defaults.WEATHER_PROVIDER == "simulated"
-    assert defaults.GEOCODING_PROVIDER == "simulated"
+
+def test_simulated_provider_remains_selectable() -> None:
+    """The simulator is not removed — it stays available for offline work and demos."""
+    from app.core.config import Settings
+
+    explicit = Settings(
+        _env_file=None, WEATHER_PROVIDER="simulated", GEOCODING_PROVIDER="simulated"
+    )
+
+    assert explicit.WEATHER_PROVIDER == "simulated"
+    assert explicit.GEOCODING_PROVIDER == "simulated"
+
+
+def test_provider_choice_is_restricted_to_known_values() -> None:
+    """A typo must fail loudly at startup rather than silently picking a default."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    with _pytest.raises(ValidationError):
+        Settings(_env_file=None, WEATHER_PROVIDER="openmeteo")
+
+
+async def test_default_configuration_routes_to_the_real_geocoder(monkeypatch) -> None:
+    """Selection, not just the setting: with defaults in force the real code path runs.
+
+    respx with no matching route raises on any outbound request, so reaching the
+    Open-Meteo URL at all is what proves the branch was taken.
+    """
+    from app.core.config import Settings
+
+    declared = Settings.model_fields["GEOCODING_PROVIDER"].default
+    monkeypatch.setattr(geocoding.settings, "GEOCODING_PROVIDER", declared)
+
+    with respx.mock:
+        route = respx.get(OPEN_METEO_URL).mock(
+            return_value=httpx.Response(200, json=NASHIK_RESPONSE)
+        )
+        result = await geocoding.search("Nashik", limit=5)
+
+    assert route.called, "the default configuration did not reach the real geocoder"
+    assert result.meta.source == "open-meteo-geocoding"
+    assert result.meta.mode is DataMode.live
+
+
+async def test_explicit_simulated_still_bypasses_the_network(monkeypatch) -> None:
+    """The offline path must stay reachable and make no outbound call."""
+    monkeypatch.setattr(geocoding.settings, "GEOCODING_PROVIDER", "simulated")
+
+    with respx.mock:  # any outbound request would raise here
+        result = await geocoding.search("Pune", limit=5)
+
+    assert result.meta.mode is DataMode.simulated
+    assert result.data
 
 
 def test_no_provider_requires_credentials() -> None:

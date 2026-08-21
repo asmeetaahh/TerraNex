@@ -49,11 +49,16 @@ class Settings(BaseSettings):
     AI_TEMPERATURE: float = 0.3
 
     # ---- External providers ----
-    # Default to the deterministic simulator: a process with no configuration makes
-    # no outbound calls, so tests, CI and offline development are safe by default.
-    # Real providers are opted into explicitly via the environment (see .env.example).
-    WEATHER_PROVIDER: Literal["open_meteo", "simulated"] = "simulated"
-    GEOCODING_PROVIDER: Literal["open_meteo", "simulated"] = "simulated"
+    # Default to the real providers. TerraNex is for farms anywhere, and only
+    # Open-Meteo resolves arbitrary places and reports their actual weather; the
+    # simulator models one climate archetype and applies it worldwide, which is
+    # wrong outside humid seasonally-rainy regions. Open-Meteo needs no API key,
+    # so a fresh clone works correctly with no configuration.
+    #
+    # `simulated` remains fully supported and is selected explicitly for offline
+    # development, deterministic demos, and the test suite (see tests/conftest.py).
+    WEATHER_PROVIDER: Literal["open_meteo", "simulated"] = "open_meteo"
+    GEOCODING_PROVIDER: Literal["open_meteo", "simulated"] = "open_meteo"
     # When a live weather provider fails, fall back to the simulator (clearly marked
     # `simulated`) instead of returning `unavailable`. Useful for demos; never
     # relabels the data.

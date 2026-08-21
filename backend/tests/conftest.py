@@ -14,11 +14,14 @@ os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("AI_PROVIDER", "mock")
 os.environ.setdefault("ENABLE_AUTH", "false")
 os.environ.setdefault("SEED_DEMO_DATA", "false")
-# Pin both providers to the simulator so the suite is offline and deterministic by
-# default. Provider tests opt into `open_meteo` explicitly and mock the transport
-# with respx, so no test ever touches the network.
-os.environ.setdefault("WEATHER_PROVIDER", "simulated")
-os.environ.setdefault("GEOCODING_PROVIDER", "simulated")
+# Pin both providers to the simulator so the suite is offline and deterministic.
+# Assigned unconditionally rather than with setdefault: the code default is now
+# `open_meteo`, so a developer with WEATHER_PROVIDER exported in their shell would
+# otherwise have the whole suite silently hit the network. Tests that exercise the
+# real provider opt in with `monkeypatch.setattr(settings, ...)` and mock the
+# transport with respx, so no test ever reaches out.
+os.environ["WEATHER_PROVIDER"] = "simulated"
+os.environ["GEOCODING_PROVIDER"] = "simulated"
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
