@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { DashboardLayout } from './components/layout/DashboardLayout'
 import { DashboardPage } from './pages/DashboardPage'
 import { FarmHealthPage } from './pages/FarmHealthPage'
+import { CropIntelligencePage } from './pages/CropIntelligencePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
         <Route index element={<Navigate to="/farms" replace />} />
         <Route path="farms" element={<DashboardPage />} />
         <Route path="farms/farm-health" element={<FarmHealthPage />} />
+        <Route path="farms/crop-intelligence" element={<CropIntelligencePage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

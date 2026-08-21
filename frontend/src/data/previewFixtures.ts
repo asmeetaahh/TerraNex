@@ -18,6 +18,7 @@ type AnalysisRunSummary = components['schemas']['AnalysisRunSummary']
 type ScoredFactor = components['schemas']['ScoredFactor']
 type DataSourceMeta = components['schemas']['DataSourceMeta']
 type CropImage = components['schemas']['CropImage']
+type VegetationSeries = components['schemas']['VegetationSeries']
 
 const now = new Date()
 const iso = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
@@ -443,3 +444,21 @@ export const previewHealthHistory: AnalysisRunSummary[] = [
   degraded_sources: [],
   created_at: iso((arr.length - 1 - index) * 7),
 }))
+
+/** Consistent with `previewDashboards[farm].analysis.crop_health` (current_ndvi 0.74, trend "stable"). */
+export const previewVegetation: Record<string, VegetationSeries> = {
+  [previewFarms[0].id]: {
+    farm_id: previewFarms[0].id,
+    meta: simulatedMeta('sentinel-2-ndvi', 'Vegetation index generated locally — no live provider connected yet.'),
+    current_ndvi: 0.74,
+    mean_ndvi: 0.69,
+    trend: 'stable',
+    trend_pct: 3.2,
+    series: [0.58, 0.61, 0.64, 0.67, 0.69, 0.71, 0.72, 0.73, 0.72, 0.74, 0.73, 0.74].map((ndvi, index, arr) => ({
+      date: iso((arr.length - 1 - index) * 7).slice(0, 10),
+      ndvi,
+      evi: Math.round((ndvi * 0.82 + 0.02) * 1000) / 1000,
+      cloud_cover_pct: 10 + ((index * 7) % 25),
+    })),
+  },
+}

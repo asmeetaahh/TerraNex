@@ -25,7 +25,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/farms', label: 'Dashboard', icon: Grid2x2 },
   { to: '/farms/farm-health', label: 'Farm Health', icon: TreePine },
-  { to: '/farms/crop-intelligence', label: 'Crop Intelligence', icon: ScanSearch, soon: true },
+  { to: '/farms/crop-intelligence', label: 'Crop Intelligence', icon: ScanSearch },
   { to: '/farms/diagnosis', label: 'Diagnosis', icon: Microscope, soon: true },
   { to: '/farms/recommendations', label: 'Recommendations', icon: Sparkles, soon: true },
   { to: '/farms/weather-risks', label: 'Weather & Risks', icon: Radar, soon: true },
