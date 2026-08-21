@@ -10,7 +10,15 @@ type ScoredFactor = components['schemas']['ScoredFactor']
  * Sourced directly from `AnalysisRun.factors` (docs/API_CONTRACT.md — ScoredFactor)
  * — the same explainability data already used for the Dashboard's "Why this?" tags.
  */
-export function HealthBreakdown({ factors }: { factors: ScoredFactor[] }) {
+export function HealthBreakdown({
+  factors,
+  title = 'Health Breakdown',
+  description = 'How each computed factor weighs into the overall Farm Health Score',
+}: {
+  factors: ScoredFactor[]
+  title?: string
+  description?: string
+}) {
   if (factors.length === 0) return null
 
   const sorted = [...factors].sort((a, b) => b.weight - a.weight)
@@ -19,11 +27,9 @@ export function HealthBreakdown({ factors }: { factors: ScoredFactor[] }) {
     <Card className="p-5">
       <h2 className="flex items-center gap-2 text-base font-semibold text-[color:var(--color-ink)]">
         <Gauge size={16} strokeWidth={1.5} className="text-lime-400" />
-        Health Breakdown
+        {title}
       </h2>
-      <p className="mb-4 text-xs text-[color:var(--color-ink-faint)]">
-        How each computed factor weighs into the overall Farm Health Score
-      </p>
+      <p className="mb-4 text-xs text-[color:var(--color-ink-faint)]">{description}</p>
 
       <div className="space-y-4">
         {sorted.map((factor) => {

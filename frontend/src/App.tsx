@@ -6,6 +6,7 @@ import { CropIntelligencePage } from './pages/CropIntelligencePage'
 import { DiagnosisPage } from './pages/DiagnosisPage'
 import { RecommendationsPage } from './pages/RecommendationsPage'
 import { WeatherRisksPage } from './pages/WeatherRisksPage'
+import { AiAdvisoryPage } from './pages/AiAdvisoryPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <Route path="farms/diagnosis" element={<DiagnosisPage />} />
         <Route path="farms/recommendations" element={<RecommendationsPage />} />
         <Route path="farms/weather-risks" element={<WeatherRisksPage />} />
+        <Route path="farms/ai-advisory" element={<AiAdvisoryPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
