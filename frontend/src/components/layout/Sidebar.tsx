@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
   { to: '/farms/recommendations', label: 'Recommendations', icon: Sparkles },
   { to: '/farms/weather-risks', label: 'Weather & Risks', icon: Radar },
   { to: '/farms/ai-advisory', label: 'AI Advisory', icon: CircleCheck },
-  { to: '/farms/regenerative', label: 'Regenerative', icon: Recycle, soon: true },
+  { to: '/farms/regenerative', label: 'Regenerative', icon: Recycle },
   { to: '/farms/data-explorer', label: 'Data Explorer', icon: FileSearch, soon: true },
   { to: '/farms/settings', label: 'Settings', icon: Settings, soon: true },
 ]

@@ -175,7 +175,9 @@ const analysis: AnalysisRun = {
     texture_class: 'clay_loam',
     limitations: [],
     explanation: 'Soil pH and texture both sit inside maize’s tolerated range, with adequate organic matter supporting nutrient retention.',
-    factors: [],
+    factors: [
+      factor('organic_carbon', 'Organic carbon', 70, 0.25, 'good', 'Organic carbon at 2.1%.'),
+    ],
   },
   advisories: [
     {
