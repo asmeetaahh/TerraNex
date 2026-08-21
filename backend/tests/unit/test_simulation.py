@@ -5,7 +5,8 @@ rather than only through the API.
 """
 
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -17,12 +18,18 @@ from app.services.simulation import (
     seeded_rng,
     simulate_day,
     simulate_days,
+    simulate_hours,
     simulate_ndvi,
     simulate_soil,
     simulated_meta,
+    solar_timezone_name,
+    solar_utc_offset_hours,
     stable_seed,
     usda_texture_class,
 )
+
+JUNE_SOLSTICE = 172
+DECEMBER_SOLSTICE = 355
 
 NAIROBI = (-1.2864, 36.8172)
 IOWA = (42.0308, -93.6319)
@@ -140,9 +147,61 @@ def test_radiation_peaks_in_local_summer() -> None:
 
 
 def test_radiation_is_finite_at_extreme_latitudes() -> None:
-    for lat in (-89.0, -66.5, 0.0, 66.5, 89.0):
-        value = extraterrestrial_radiation_mm(lat, 172)
-        assert math.isfinite(value) and value >= 0
+    for lat in (-90.0, -89.0, -66.5, 0.0, 66.5, 89.0, 90.0):
+        for doy in (JUNE_SOLSTICE, DECEMBER_SOLSTICE):
+            value = extraterrestrial_radiation_mm(lat, doy)
+            assert math.isfinite(value) and value >= 0
+
+
+# --------------------------------------------------------------------------
+# Polar latitudes
+#
+# Latitude used to be clamped to +/-66 deg, so every position beyond the Arctic and
+# Antarctic circles returned the boundary's value: a farm at 69 deg N saw 66 deg's
+# midsummer sun and never saw a polar night. The clamp was redundant — `acos` is
+# guarded by clamping its own argument — and removing it makes the polar cases fall
+# out of the FAO-56 formula rather than being flattened away.
+# --------------------------------------------------------------------------
+
+
+def test_radiation_is_not_clamped_beyond_the_arctic_circle() -> None:
+    """The regression this section exists for: 78 deg must not equal 66 deg."""
+    at_circle = extraterrestrial_radiation_mm(66.0, JUNE_SOLSTICE)
+    beyond = extraterrestrial_radiation_mm(78.0, JUNE_SOLSTICE)
+
+    assert beyond > at_circle, (
+        f"78 deg N returned {beyond} against {at_circle} at 66 deg N — latitude is being clamped"
+    )
+
+
+def test_polar_summer_brightens_toward_the_pole() -> None:
+    """Under the midnight sun, a full day of low-angle light beats a partial day of
+    higher-angle light, so Ra keeps rising polewards."""
+    values = [extraterrestrial_radiation_mm(lat, JUNE_SOLSTICE) for lat in (66.0, 78.0, 85.0)]
+
+    assert values == sorted(values)
+    assert values[0] < values[-1]
+
+
+def test_polar_night_receives_no_radiation() -> None:
+    assert extraterrestrial_radiation_mm(78.0, DECEMBER_SOLSTICE) == 0.0
+    assert extraterrestrial_radiation_mm(85.0, DECEMBER_SOLSTICE) == 0.0
+    # ...and the southern mirror, six months out of phase.
+    assert extraterrestrial_radiation_mm(-78.0, JUNE_SOLSTICE) == 0.0
+    assert extraterrestrial_radiation_mm(-85.0, JUNE_SOLSTICE) == 0.0
+
+
+def test_polar_seasons_are_inverted_across_the_equator() -> None:
+    """Antarctic midsummer is the Arctic's midwinter."""
+    assert extraterrestrial_radiation_mm(-78.0, DECEMBER_SOLSTICE) > 0.0
+    assert extraterrestrial_radiation_mm(78.0, JUNE_SOLSTICE) > 0.0
+
+
+def test_temperate_radiation_is_unchanged_by_removing_the_clamp() -> None:
+    """Everything equatorward of 66 deg was never clamped and must not move."""
+    for lat in (-45.0, 0.0, 20.0, 45.0, 60.0):
+        assert extraterrestrial_radiation_mm(lat, JUNE_SOLSTICE) > 0.0
+        assert extraterrestrial_radiation_mm(lat, DECEMBER_SOLSTICE) > 0.0
 
 
 def test_et0_rises_with_temperature() -> None:
@@ -187,6 +246,112 @@ def test_ndvi_stays_in_range_and_responds_to_a_crop() -> None:
 
     assert all(-1 <= v <= 1 for v in bare + cropped)
     assert sum(cropped) / 12 > sum(bare) / 12
+
+
+# --------------------------------------------------------------------------
+# Solar timezone
+#
+# The simulator reported timezone="UTC" for every location on Earth, so a farm's
+# local time could be wrong by twelve hours. It has no gazetteer, so it names the
+# offset the sun implies at its meridian and nothing more.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("longitude", "expected"),
+    [
+        (0.0, "Etc/GMT"),
+        (7.4, "Etc/GMT"),  # rounds to offset 0
+        (36.8172, "Etc/GMT-2"),  # Nairobi meridian -> UTC+2
+        (73.79096, "Etc/GMT-5"),  # Nashik meridian -> UTC+5
+        (113.6486, "Etc/GMT-8"),  # Zhengzhou meridian -> UTC+8
+        (-47.8103, "Etc/GMT+3"),  # Ribeirao Preto meridian -> UTC-3
+        (-93.6319, "Etc/GMT+6"),  # Iowa meridian -> UTC-6
+        (180.0, "Etc/GMT-12"),
+        (-180.0, "Etc/GMT+12"),
+    ],
+)
+def test_solar_timezone_inverts_the_posix_sign(longitude: float, expected: str) -> None:
+    """`Etc/GMT-3` means UTC+3. East longitudes therefore get negative names."""
+    assert solar_timezone_name(longitude) == expected
+
+
+@pytest.mark.parametrize("longitude", [-180.0, -135.0, -60.0, -7.5, 0.0, 7.5, 60.0, 135.0, 180.0])
+def test_solar_timezone_is_a_resolvable_iana_zone(longitude: float) -> None:
+    """The name must be one a real tz database can load — a plausible-looking string
+    the frontend cannot resolve would be worse than UTC."""
+    offset = datetime(2026, 6, 15, tzinfo=ZoneInfo(solar_timezone_name(longitude))).utcoffset()
+
+    assert offset is not None
+    assert offset.total_seconds() / 3600 == solar_utc_offset_hours(longitude)
+
+
+def test_solar_offset_tracks_longitude_at_fifteen_degrees_per_hour() -> None:
+    assert solar_utc_offset_hours(0.0) == 0
+    assert solar_utc_offset_hours(15.0) == 1
+    assert solar_utc_offset_hours(-15.0) == -1
+    assert solar_utc_offset_hours(150.0) == 10
+
+
+def test_solar_offset_stays_inside_the_etc_gmt_range() -> None:
+    """Every longitude, and anything out of range, must still name a loadable zone."""
+    for longitude in range(-360, 361, 5):
+        offset = solar_utc_offset_hours(float(longitude))
+        assert -12 <= offset <= 14
+        ZoneInfo(solar_timezone_name(float(longitude)))
+
+
+def test_longitudes_do_not_all_report_one_zone() -> None:
+    """The defect in one assertion: a single global default is impossible to pass."""
+    zones = {solar_timezone_name(lon) for lon in range(-180, 181, 15)}
+
+    assert len(zones) >= 8, f"timezones collapsed: {sorted(zones)}"
+
+
+# --------------------------------------------------------------------------
+# Hourly timestamps
+# --------------------------------------------------------------------------
+
+
+def test_simulated_hours_begin_at_local_midnight() -> None:
+    """Timestamps are UTC instants, but converting them into the zone the response
+    advertises must give 00:00, 01:00, ... — otherwise the reported timezone and the
+    data contradict each other."""
+    latitude, longitude = 19.99727, 73.79096  # a +5h solar meridian
+    zone = ZoneInfo(solar_timezone_name(longitude))
+
+    steps = simulate_hours(latitude, longitude, DAY, 1)
+
+    assert [ts.astimezone(zone).hour for ts, *_ in steps] == list(range(24))
+    assert all(ts.astimezone(zone).date() == DAY for ts, *_ in steps)
+
+
+def test_simulated_hours_are_ordered_and_dense() -> None:
+    steps = simulate_hours(*NAIROBI, DAY, 3)
+    times = [ts for ts, *_ in steps]
+
+    assert len(times) == 72
+    assert times == sorted(times)
+    assert all(t.tzinfo is not None for t in times)
+
+
+def test_simulated_hours_shift_with_longitude() -> None:
+    """Two farms on the same parallel but different meridians start their day at
+    different instants."""
+    east = simulate_hours(0.0, 90.0, DAY, 1)[0][0]
+    west = simulate_hours(0.0, -90.0, DAY, 1)[0][0]
+
+    assert east != west
+    assert (west - east).total_seconds() == 12 * 3600
+
+
+def test_simulated_hours_remain_deterministic() -> None:
+    first = simulate_hours(*NAIROBI, DAY, 2)
+    second = simulate_hours(*NAIROBI, DAY, 2)
+
+    assert [(ts, t, h, p) for ts, _, t, h, p in first] == [
+        (ts, t, h, p) for ts, _, t, h, p in second
+    ]
 
 
 # --------------------------------------------------------------------------

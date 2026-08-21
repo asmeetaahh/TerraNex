@@ -3,6 +3,8 @@
 All transport is mocked with respx; nothing here touches the network.
 """
 
+from zoneinfo import ZoneInfo
+
 import httpx
 import pytest
 import respx
@@ -420,6 +422,50 @@ async def test_simulated_provider_makes_no_network_call(monkeypatch) -> None:
         result = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
 
     assert result.meta.mode is DataMode.simulated
+
+
+async def test_simulated_timezone_varies_with_longitude(monkeypatch) -> None:
+    """The simulator reported "UTC" for every location on Earth, so a farm's local
+    time could be wrong by twelve hours. It cannot know a civil zone, but it can
+    report the offset its own timestamps were built from."""
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "simulated")
+
+    zones = []
+    for longitude in (-120.0, -47.8103, 0.0, 36.8172, 73.79096, 113.6486, 150.0):
+        result = await weather.get_observations(10.0, longitude)
+        zones.append(result.data.timezone)
+
+    assert len(set(zones)) >= 5, f"timezones collapsed: {sorted(set(zones))}"
+    assert all(z.startswith("Etc/GMT") for z in zones), zones
+
+
+async def test_simulated_hourly_times_agree_with_the_reported_timezone(monkeypatch) -> None:
+    """The property that makes the reported zone trustworthy: converting the returned
+    instants into it yields whole local hours starting at midnight."""
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "simulated")
+
+    result = await weather.get_observations(19.99727, 73.79096)
+
+    zone = ZoneInfo(result.data.timezone)
+    local_hours = [h.time.astimezone(zone).hour for h in result.data.hourly]
+
+    assert local_hours[:24] == list(range(24))
+    assert all(h.time.utcoffset() is not None for h in result.data.hourly)
+
+
+async def test_simulated_observations_stay_deterministic(monkeypatch) -> None:
+    """Determinism is what the demo and the contract tests rest on; the timezone
+    change must not disturb it."""
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "simulated")
+
+    first = await weather.get_observations(-1.2864, 36.8172)
+    second = await weather.get_observations(-1.2864, 36.8172)
+
+    assert first.data.timezone == second.data.timezone
+    assert [(d.date, d.temp_max_c, d.precipitation_mm) for d in first.data.daily] == [
+        (d.date, d.temp_max_c, d.precipitation_mm) for d in second.data.daily
+    ]
+    assert [h.time for h in first.data.hourly] == [h.time for h in second.data.hourly]
 
 
 async def test_simulated_provider_spans_the_canonical_window(monkeypatch) -> None:

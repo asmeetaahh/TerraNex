@@ -457,7 +457,12 @@ def simulated_observations(
         WeatherObservations(
             latitude=latitude,
             longitude=longitude,
-            timezone="UTC",
+            # A solar offset derived from the longitude, not the civil zone this place
+            # observes — the simulator has no gazetteer and will not invent one. It is
+            # the same offset the hourly timestamps were built from, so the two cannot
+            # contradict each other. Reporting "UTC" everywhere, as this did, made a
+            # farm's local time wrong by up to twelve hours.
+            timezone=simulation.solar_timezone_name(longitude),
             current=current,
             daily=daily,
             hourly=hourly,

@@ -27,7 +27,7 @@ that arrives with real provider data and replaces the scoring here.
 import hashlib
 import math
 import random
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 
 from app.providers.base import simulated_meta as provider_simulated_meta
 from app.schemas.common import DataSourceMeta
@@ -98,8 +98,15 @@ def extraterrestrial_radiation_mm(latitude: float, day_of_year: int) -> float:
 
     Real physics, no randomness — this is what gives the simulated ET₀ a believable
     seasonal and latitudinal shape.
+
+    Latitude is **not** clamped. The only domain hazard is `acos`, and its argument is
+    already clamped to [-1, 1] below, which is exactly what produces the polar cases:
+    an argument at -1 gives a sunset angle of pi (24 hours of daylight) and one at +1
+    gives 0 (polar night, Ra = 0). Clamping latitude instead collapsed every position
+    beyond +/-66 deg onto that boundary's value, so a farm at 69 deg N saw the same
+    midsummer radiation as one at 66 deg and never saw a polar night at all.
     """
-    phi = math.radians(_clamp(latitude, -66.0, 66.0))
+    phi = math.radians(latitude)
     dr = 1 + 0.033 * math.cos(2 * math.pi * day_of_year / 365.25)
     decl = 0.409 * math.sin(2 * math.pi * day_of_year / 365.25 - 1.39)
 
@@ -113,6 +120,36 @@ def extraterrestrial_radiation_mm(latitude: float, day_of_year: int) -> float:
         * (ws * math.sin(phi) * math.sin(decl) + math.cos(phi) * math.cos(decl) * math.sin(ws))
     )
     return max(0.0, ra_mj * 0.408)  # MJ/m²/day → mm/day
+
+
+def solar_utc_offset_hours(longitude: float) -> int:
+    """The whole-hour UTC offset implied by a longitude, at 15 deg per hour.
+
+    A *solar* offset, not a civil one — see :func:`solar_timezone_name`.
+    """
+    # Etc/GMT covers UTC-12 to UTC+14; a longitude in [-180, 180] never leaves
+    # [-12, 12], but clamping keeps an out-of-range input from producing an
+    # unresolvable zone name.
+    return int(_clamp(round(longitude / 15.0), -12, 14))
+
+
+def solar_timezone_name(longitude: float) -> str:
+    """A valid IANA `Etc/GMT+-N` zone for a longitude.
+
+    **This is a solar-longitude approximation, not a political timezone.** It reports
+    the offset the sun implies at this meridian, which is often not the offset the
+    country observes: China spans five solar hours on a single civil zone, India sits
+    at a half-hour offset no whole-hour zone can express, and nothing here models DST.
+    Naming a real zone such as `Asia/Shanghai` would be a fabrication the simulator
+    has no basis for, so it names only what it actually knows.
+
+    Note the POSIX sign inversion baked into the `Etc/GMT*` names: `Etc/GMT-3` is
+    **UTC+3**. Positive longitudes (east) therefore map to `Etc/GMT-N`.
+    """
+    offset = solar_utc_offset_hours(longitude)
+    if offset == 0:
+        return "Etc/GMT"
+    return f"Etc/GMT{-offset:+d}"
 
 
 def climate_zone(latitude: float) -> str:
@@ -247,9 +284,18 @@ def simulate_hours(
     Yields `(timestamp, parent_day, temp_c, humidity_pct, precip_mm)`. Hourly
     resolution matters because disease rules are defined over consecutive hours of
     humidity and temperature, not daily means.
+
+    `hour` is a **local** hour at this longitude, so the diurnal curve peaks in the
+    local afternoon rather than the afternoon at Greenwich. Timestamps are returned as
+    UTC instants, matching what the real provider's parser produces, so a consumer
+    never has to know which provider supplied them.
     """
+    # The same offset `solar_timezone_name` reports, so the timezone a response
+    # advertises and the instants it carries cannot disagree.
+    tz = timezone(timedelta(hours=solar_utc_offset_hours(longitude)))
     out = []
     for day in simulate_days(latitude, longitude, start, days):
+        local_midnight = datetime.combine(day.date, datetime.min.time(), tzinfo=tz)
         for hour in range(24):
             # Coolest just before dawn, warmest mid-afternoon.
             phase = math.cos(2 * math.pi * (hour - 15) / 24)
@@ -257,7 +303,7 @@ def simulate_hours(
             # Humidity moves inversely to temperature.
             humidity = _clamp(day.humidity_pct - 12 * phase, 0, 100)
             precip = round(day.precipitation_mm / 24, 3) if day.precipitation_mm else 0.0
-            ts = datetime.combine(day.date, datetime.min.time(), tzinfo=UTC) + timedelta(hours=hour)
+            ts = (local_midnight + timedelta(hours=hour)).astimezone(UTC)
             out.append((ts, day, round(temp, 1), round(humidity, 1), precip))
     return out
 
