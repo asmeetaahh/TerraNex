@@ -32,6 +32,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from app.providers.base import simulated_meta as provider_simulated_meta
 from app.schemas.common import DataSourceMeta
 from app.schemas.enums import SoilTexture
+from app.services import climate
 
 SIMULATED_SOURCE = "simulated"
 
@@ -181,15 +182,32 @@ def _seasonal_temperature(latitude: float, day_of_year: int) -> tuple[float, flo
 
 
 def _wet_season_factor(latitude: float, day_of_year: int) -> float:
-    """0.2-1.8 multiplier approximating a monsoon/wet-season cycle."""
+    """The share of the year's rain that falls around this day, as a weight of mean 1.
+
+    A cosine peaking in late summer and half a year out of phase across the equator.
+    Because a cosine averages to zero, this weight averages to exactly 1 over the year,
+    which is what lets it redistribute an annual total without changing it.
+
+    The shape is the same for everywhere on Earth, which is wrong — a Mediterranean
+    climate takes its rain in winter and an equatorial one twice a year. Regional
+    seasonality is deliberately left to a later milestone; only the annual total is
+    corrected here.
+    """
     peak_day = 210.0 if latitude >= 0 else 210.0 - 182.6
     swing = math.cos(2 * math.pi * (day_of_year - peak_day) / 365.25)
     return 1.0 + 0.8 * swing
 
 
-def _rain_probability(zone: str, wet_factor: float) -> float:
-    base = {"tropical": 0.42, "subtropical": 0.26, "temperate": 0.32, "boreal": 0.28}[zone]
-    return _clamp(base * wet_factor, 0.02, 0.85)
+# Sets how a climate's rain splits between frequency and intensity. Wetter places rain
+# both more often and harder, each scaling roughly as the square root of the total, so
+# a wet day's depth is the expected daily amount divided by the chance of a wet day.
+# A shape parameter of the generator, not a value fitted to any location.
+RAIN_EVENT_REFERENCE_MM = 12.0
+
+
+def _rain_chance(expected_mm: float) -> float:
+    """The chance of a wet day, given how much rain the day is expected to bring."""
+    return _clamp(math.sqrt(max(expected_mm, 0.0) / RAIN_EVENT_REFERENCE_MM), 0.02, 0.85)
 
 
 def reference_et0_mm(mean_temp_c: float, diurnal_range_c: float, ra_mm: float) -> float:
@@ -229,7 +247,6 @@ def simulate_day(latitude: float, longitude: float, day: date) -> SimulatedDay:
     """Simulate one day. Depends only on (latitude, longitude, day)."""
     rng = seeded_rng("weather", round(latitude, 3), round(longitude, 3), day.isoformat())
     doy = day.timetuple().tm_yday
-    zone = climate_zone(latitude)
 
     mean_temp, diurnal = _seasonal_temperature(latitude, doy)
     mean_temp += rng.uniform(-3.0, 3.0)  # day-to-day weather variability
@@ -238,11 +255,18 @@ def simulate_day(latitude: float, longitude: float, day: date) -> SimulatedDay:
     temp_min = mean_temp - diurnal / 2
     temp_max = mean_temp + diurnal / 2
 
+    # The day's expected rainfall is this location's annual total, shared out across
+    # the year by the seasonal weight. Splitting that expectation into a chance of rain
+    # and a mean depth means the annual total is a target the generator hits by
+    # construction, rather than whatever happens to fall out of a tuned probability.
     wet = _wet_season_factor(latitude, doy)
-    rains = rng.random() < _rain_probability(zone, wet)
+    expected_mm = climate.annual_precipitation_mm(latitude, longitude) / 365.25 * wet
+    chance = _rain_chance(expected_mm)
+
+    rains = rng.random() < chance
     if rains:
         # Heavy-tailed: most rain days are light, a few are downpours.
-        precip = round(rng.expovariate(1 / (6.0 * wet)), 1)
+        precip = round(rng.expovariate(chance / max(expected_mm, 1e-6)), 1)
         precip_hours = round(_clamp(rng.uniform(1, 10), 0, 24), 1)
         humidity = _clamp(rng.uniform(72, 95), 0, 100)
         cloud = _clamp(rng.uniform(60, 100), 0, 100)
@@ -374,12 +398,23 @@ def simulate_soil(latitude: float, longitude: float) -> SimulatedSoil:
 
     texture = usda_texture_class(sand, silt, clay)
 
-    # Humid tropics tend acidic; drylands tend alkaline.
-    ph_centre = 6.6 - 0.9 * math.cos(math.radians(abs(latitude) * 2))
+    aridity = climate.aridity_index(latitude, longitude)
+
+    # pH follows the leaching balance, which is what aridity measures. Where rain
+    # exceeds evaporation, bases wash out of the profile and it turns acidic; where
+    # evaporation wins, carbonates accumulate and it turns alkaline. Humid tropics and
+    # boreal forests land in the same acidic range for different reasons — one leached
+    # by rain, the other by organic acids — and drylands land near 8.
+    #
+    # This replaces a latitude-only term that had the relationship backwards, putting
+    # the desert belt at its most acidic and the boreal zone at its most alkaline.
+    ph_centre = 5.3 + 2.6 * aridity
     ph = _clamp(rng.gauss(ph_centre, 0.55), 3.9, 8.8)
 
-    # Organic carbon falls with mean temperature (faster mineralisation).
-    soc_centre = _clamp(3.4 - 0.055 * (29.0 - 0.42 * abs(latitude)), 0.4, 4.0)
+    # Organic carbon falls with mean temperature (faster mineralisation) and with
+    # aridity, since a desert grows little of the litter that becomes soil carbon.
+    warmth_centre = 3.4 - 0.055 * (29.0 - 0.42 * abs(latitude))
+    soc_centre = _clamp(warmth_centre * (1.0 - 0.8 * aridity), 0.1, 4.0)
     soc = _clamp(rng.gauss(soc_centre, 0.6), 0.15, 6.0)
 
     awc = _AVAILABLE_WATER_FRACTION[texture]

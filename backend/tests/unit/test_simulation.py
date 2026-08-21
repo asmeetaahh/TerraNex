@@ -11,7 +11,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.schemas.common import DataMode
+from app.services import climate
 from app.services.simulation import (
+    _wet_season_factor,
     climate_zone,
     extraterrestrial_radiation_mm,
     reference_et0_mm,
@@ -246,6 +248,145 @@ def test_ndvi_stays_in_range_and_responds_to_a_crop() -> None:
 
     assert all(-1 <= v <= 1 for v in bare + cropped)
     assert sum(cropped) / 12 > sum(bare) / 12
+
+
+# --------------------------------------------------------------------------
+# Rainfall
+#
+# Rain used to depend only on `abs(latitude)`, so the simulator produced ~700-1100 mm
+# a year everywhere: Aswan got 762 mm against a real ~1 mm, and a farm in Riyadh was
+# told it had adequate rainfall. Longitude now carries meaning, and the annual total is
+# an explicit target the generator aims at rather than an accident of two tuned knobs.
+# --------------------------------------------------------------------------
+
+YEAR_START = date(2026, 1, 1)
+
+# Real places, used to check that the model tells them apart. The model itself knows
+# nothing about them — see `test_no_validation_coordinate_appears_in_the_model`.
+ASWAN = (24.0908, 32.8994)
+RIYADH = (24.6877, 46.7219)
+SHIRAZ = (29.6103, 52.5311)
+KRASNODAR = (45.0453, 38.9818)
+RIBEIRAO_PRETO = (-21.1775, -47.8103)
+MEDAN = (3.5833, 98.6667)
+
+
+def simulated_annual_mm(latitude: float, longitude: float) -> float:
+    return sum(d.precipitation_mm for d in simulate_days(latitude, longitude, YEAR_START, 365))
+
+
+def test_deserts_are_dry() -> None:
+    """The headline regression. Every one of these was 682-762 mm before."""
+    for name, (lat, lon) in {"Aswan": ASWAN, "Riyadh": RIYADH}.items():
+        total = simulated_annual_mm(lat, lon)
+        assert total < 250, f"{name} simulated {total:.0f} mm/year"
+
+
+def test_wet_tropics_are_wet() -> None:
+    for name, (lat, lon) in {"Medan": MEDAN, "Ribeirao Preto": RIBEIRAO_PRETO}.items():
+        total = simulated_annual_mm(lat, lon)
+        assert total > 1200, f"{name} simulated {total:.0f} mm/year"
+
+
+def test_rainfall_orders_places_correctly() -> None:
+    """The assertion no latitude-only model can satisfy.
+
+    Aswan, Riyadh and Shiraz sit within six degrees of latitude of each other and of
+    Ribeirao Preto's mirror; ordering them requires knowing where they are, not just
+    how far from the equator.
+    """
+    ordered = [
+        simulated_annual_mm(*place)
+        for place in (ASWAN, RIYADH, SHIRAZ, KRASNODAR, RIBEIRAO_PRETO, MEDAN)
+    ]
+
+    assert ordered == sorted(ordered), f"rainfall is not correctly ordered: {ordered}"
+
+
+def test_longitude_changes_the_rainfall() -> None:
+    """Two farms on one parallel, on different continents. Under the old model these
+    were statistically identical."""
+    arabian = simulated_annual_mm(24.0, 46.0)
+    south_china = simulated_annual_mm(24.0, 113.0)
+
+    assert south_china > arabian * 5
+
+
+def test_the_generator_hits_its_annual_target() -> None:
+    """Budget closure, the property that makes the target meaningful.
+
+    Expected daily rainfall is split into a chance of rain and a mean depth whose
+    product is that expectation, so a year of draws must land near the target. What is
+    left is sampling noise, widest where rain is rare.
+    """
+    for lat in range(-60, 61, 20):
+        for lon in range(-180, 180, 60):
+            target = climate.annual_precipitation_mm(float(lat), float(lon))
+            drawn = simulated_annual_mm(float(lat), float(lon))
+            assert 0.6 <= drawn / target <= 1.5, (
+                f"({lat}, {lon}) drew {drawn:.0f} mm against a {target:.0f} mm target"
+            )
+
+
+def test_rain_is_still_deterministic() -> None:
+    assert simulated_annual_mm(*RIYADH) == simulated_annual_mm(*RIYADH)
+
+
+def test_wet_season_weight_averages_to_one() -> None:
+    """What lets the seasonal shape redistribute a year's rain without changing it."""
+    for latitude in (-40.0, -5.0, 20.0, 55.0):
+        weights = [_wet_season_factor(latitude, doy) for doy in range(1, 366)]
+        assert sum(weights) / len(weights) == pytest.approx(1.0, abs=0.01)
+
+
+# --------------------------------------------------------------------------
+# Soil chemistry follows aridity
+#
+# pH used to be a function of `abs(latitude)` alone, which put the desert belt at its
+# most acidic and the boreal zone at its most alkaline — the relationship inverted.
+# --------------------------------------------------------------------------
+
+DESERT_CORES = [(24.0, 15.0), (20.0, 50.0), (39.0, 83.0), (-23.0, -70.0), (-24.0, 15.0)]
+HUMID_TROPICS = [(-3.0, -62.0), (0.0, 22.0), (1.0, 114.0), (-5.0, 142.0)]
+BOREAL = [(62.0, 25.0), (64.0, -147.0), (60.0, 90.0), (66.0, 20.0)]
+
+
+def _mean_ph(points) -> float:
+    return sum(simulate_soil(lat, lon).ph for lat, lon in points) / len(points)
+
+
+def _mean_soc(points) -> float:
+    return sum(simulate_soil(lat, lon).organic_carbon_pct for lat, lon in points) / len(points)
+
+
+def test_desert_soils_are_alkaline() -> None:
+    """Evaporation exceeds rainfall, so carbonates accumulate instead of leaching."""
+    assert _mean_ph(DESERT_CORES) > 7.2
+
+
+def test_humid_and_boreal_soils_are_acidic() -> None:
+    """Both are strongly leached — one by rain, the other by organic acids."""
+    assert _mean_ph(HUMID_TROPICS) < 6.0
+    assert _mean_ph(BOREAL) < 6.0
+
+
+def test_the_ph_relationship_is_no_longer_inverted() -> None:
+    """The defect in one assertion: boreal soil must not be the most alkaline on Earth."""
+    assert _mean_ph(BOREAL) < _mean_ph(DESERT_CORES)
+
+
+def test_deserts_hold_little_organic_carbon() -> None:
+    """A desert grows little of the litter that becomes soil carbon."""
+    assert _mean_soc(DESERT_CORES) < 1.2
+    assert _mean_soc(BOREAL) > _mean_soc(DESERT_CORES)
+
+
+def test_soil_is_still_deterministic_and_physical() -> None:
+    for lat, lon in DESERT_CORES + HUMID_TROPICS + BOREAL:
+        first, second = simulate_soil(lat, lon), simulate_soil(lat, lon)
+        assert first.ph == second.ph
+        assert 3.9 <= first.ph <= 8.8
+        assert 0 < first.organic_carbon_pct <= 6
 
 
 # --------------------------------------------------------------------------
