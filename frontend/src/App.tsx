@@ -8,6 +8,7 @@ import { RecommendationsPage } from './pages/RecommendationsPage'
 import { WeatherRisksPage } from './pages/WeatherRisksPage'
 import { AiAdvisoryPage } from './pages/AiAdvisoryPage'
 import { RegenerativePage } from './pages/RegenerativePage'
+import { DataExplorerPage } from './pages/DataExplorerPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
         <Route path="farms/weather-risks" element={<WeatherRisksPage />} />
         <Route path="farms/ai-advisory" element={<AiAdvisoryPage />} />
         <Route path="farms/regenerative" element={<RegenerativePage />} />
+        <Route path="farms/data-explorer" element={<DataExplorerPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

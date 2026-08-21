@@ -14,7 +14,7 @@ interface LiveState {
  * `GET /farms/{farm_id}/weather` is independent of the analysis run, so it's
  * fetched separately here — same preview/live split as `useVegetation`.
  */
-export function useWeatherBundle(farmId: string | null, mode: DashboardMode): LiveState {
+export function useWeatherBundle(farmId: string | null, mode: DashboardMode, forecastDays = 7): LiveState {
   const [live, setLive] = useState<LiveState>({ data: null, loading: true, unavailable: false })
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export function useWeatherBundle(farmId: string | null, mode: DashboardMode): Li
 
     let cancelled = false
 
-    getWeather(farmId)
+    getWeather(farmId, forecastDays)
       .then((bundle) => {
         if (!cancelled) setLive({ data: bundle, loading: false, unavailable: false })
       })
@@ -33,7 +33,7 @@ export function useWeatherBundle(farmId: string | null, mode: DashboardMode): Li
     return () => {
       cancelled = true
     }
-  }, [farmId, mode])
+  }, [farmId, mode, forecastDays])
 
   if (mode === 'preview') {
     return { data: farmId ? (previewWeatherBundle[farmId] ?? null) : null, loading: false, unavailable: false }

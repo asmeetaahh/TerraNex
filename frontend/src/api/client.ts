@@ -1,4 +1,5 @@
 import type { components } from './types.gen'
+import { getAccessToken } from './session'
 
 type ErrorDetail = components['schemas']['ErrorDetail']
 
@@ -22,10 +23,13 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAccessToken()
+
   const response = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   })

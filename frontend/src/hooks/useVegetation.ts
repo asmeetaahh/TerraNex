@@ -17,7 +17,7 @@ interface LiveState {
  * synchronously, no effect needed), live farms get the real endpoint, and a
  * failure on a live farm never falls back to fixture data.
  */
-export function useVegetation(farmId: string | null, mode: DashboardMode): LiveState {
+export function useVegetation(farmId: string | null, mode: DashboardMode, days = 90): LiveState {
   const [live, setLive] = useState<LiveState>({ data: null, loading: true, unavailable: false })
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function useVegetation(farmId: string | null, mode: DashboardMode): LiveS
 
     let cancelled = false
 
-    getVegetation(farmId)
+    getVegetation(farmId, days)
       .then((series) => {
         if (!cancelled) setLive({ data: series, loading: false, unavailable: false })
       })
@@ -36,7 +36,7 @@ export function useVegetation(farmId: string | null, mode: DashboardMode): LiveS
     return () => {
       cancelled = true
     }
-  }, [farmId, mode])
+  }, [farmId, mode, days])
 
   if (mode === 'preview') {
     return { data: farmId ? (previewVegetation[farmId] ?? null) : null, loading: false, unavailable: false }
