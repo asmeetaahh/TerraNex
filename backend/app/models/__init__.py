@@ -5,9 +5,10 @@ autogeneration and `create_all` both need. Import the package, not the modules, 
 new model cannot be left out of a migration by being forgotten here.
 """
 
+from app.models.analysis import AnalysisRunORM
 from app.models.base import Base
 from app.models.crop import CropORM
 from app.models.farm import FarmCropORM, FarmORM
 from app.models.user import UserORM
 
-__all__ = ["Base", "CropORM", "FarmCropORM", "FarmORM", "UserORM"]
+__all__ = ["AnalysisRunORM", "Base", "CropORM", "FarmCropORM", "FarmORM", "UserORM"]

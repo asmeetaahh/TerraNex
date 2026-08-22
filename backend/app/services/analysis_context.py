@@ -123,6 +123,17 @@ def crop_parameters_for(crop: Crop | None) -> CropParameters:
     )
 
 
+def provenance_key(env: EnvironmentSnapshot) -> tuple[str, ...]:
+    """Where each input came from, as sorted `source:mode` pairs.
+
+    Feeds `inputs_hash`, so a change of provenance invalidates a cached run even when
+    every measurement is identical. `fetched_at` and `note` are deliberately excluded:
+    the first moves on every call and would make the cache never hit, the second carries
+    failure text and timestamps and would do the same.
+    """
+    return tuple(sorted(f"{meta.source}:{meta.mode}" for meta in env.sources))
+
+
 def crop_catalog() -> tuple[CropParameters, ...]:
     """Every crop the recommender may propose, from whichever catalog is configured.
 
@@ -198,4 +209,5 @@ def build_context(
         expected_harvest_date=_harvest_date(planting),
         area_hectares=record.area_hectares,
         ruleset_version=RULESET_VERSION,
+        provenance_key=provenance_key(env),
     )

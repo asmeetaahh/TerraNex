@@ -241,6 +241,20 @@ class AnalysisContext:
     engine_version: str = ENGINE_VERSION
     ruleset_version: str = ""
 
+    #: Where each input actually came from, as sorted `source:mode` pairs.
+    #:
+    #: The engine never reads this — it changes no calculation. It is here because it
+    #: changes the *result*: `sources[]` and `degraded_sources` are part of the run, so
+    #: two analyses over byte-identical measurements are still different payloads when
+    #: one was live and the other simulated. Without this in the digest, a run computed
+    #: while a provider was down would be served after it recovered, reporting
+    #: `mode: "simulated"` for data that is now live — which is exactly the confusion
+    #: the DataMode enum exists to prevent.
+    #:
+    #: Only `source` and `mode`. `fetched_at` moves on every call and would defeat the
+    #: cache entirely; `note` carries timestamps and failure text and would do the same.
+    provenance_key: Sequence[str] = ()
+
     # ---- windows ----
 
     def history(self, days: int) -> list[DailyPoint]:
@@ -291,6 +305,7 @@ def canonical_inputs(context: AnalysisContext) -> dict:
     return {
         "engine_version": context.engine_version,
         "ruleset_version": context.ruleset_version,
+        "provenance": sorted(context.provenance_key),
         "latitude": _round(context.latitude, COORDINATE_PRECISION),
         "longitude": _round(context.longitude, COORDINATE_PRECISION),
         "today": context.today.isoformat(),

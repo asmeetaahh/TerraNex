@@ -224,13 +224,29 @@ what makes the single-branch workflow safe — the contract cannot silently drif
 | Every one of the 26 paths implemented — no route returns `501` | **done** |
 | Deterministic seeded responses, stable `uuid5` crop and demo ids | **done** |
 | External providers — Open-Meteo weather and geocoding, TTL cache, wall-clock budget, labelled degradation | **done** |
-| Deterministic risk engine — weather, water, disease, soil, composite `ScoredFactor`s | **done** |
+| Deterministic risk engine — weather, water, disease, soil, vegetation, recommendations, composite | **done** |
 | Geography-aware climate simulation for the offline and fallback path | **done** |
 | Models, session management, Alembic, database-backed crop catalog and farm CRUD | **done** |
-| Analysis runs and crop images | still served from the in-memory store |
+| Analysis runs — persisted, with `inputs_hash` reuse | **done** |
+| Crop images | still served from the in-memory store |
 | SoilGrids and NASA POWER providers | not started |
 | Authentication — Supabase JWT verification, `users`, farm ownership | **done** |
 | Gemini reasoning and vision | not started |
+
+**`alembic upgrade head` is a required deploy step.** Migrations are not applied at
+boot: `app/main.py` seeds the crop catalog in its lifespan, so a host with
+`DATABASE_URL` set and migrations unapplied fails on startup rather than degrading.
+Since analysis runs are now persisted, an unmigrated database would also mean every
+run is lost on restart — which is why the failure is deliberately loud.
+
+**A stored analysis is reused when the same question was already asked.** Each run
+carries an `inputs_hash` over every observation, the crop parameters, the soil, *and
+the provenance of each input*, alongside the engine and ruleset versions. A repeat
+request inside `ANALYSIS_CACHE_TTL_S` returns the stored run; a changed measurement,
+a provider recovering from an outage, a ruleset edit or an engine bump all miss. The
+hash is internal — `AnalysisRun` is published in the frozen contract and has no field
+for it. Lookups are scoped to the farm even though the hash is not, because a run
+carries `farm_id` on itself and on every advisory.
 
 **Persistence is optional and additive.** With `DATABASE_URL` unset the API runs
 entirely on the in-memory store, so the test suite needs no database and a fresh clone

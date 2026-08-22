@@ -21,10 +21,14 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.errors import NoAnalysisYetError
-from app.db.memory import FarmCropRecord, FarmRecord, store
+from app.db import analysis_repo
+from app.db.memory import FarmCropRecord, FarmRecord, RunMetadata, store
+from app.db.session import database_enabled
 from app.engine import composite as engine_composite
+from app.engine import context as engine_context
 from app.engine import disease as engine_disease
 from app.engine import recommendations as engine_recommendations
 from app.engine import soil as engine_soil
@@ -483,29 +487,30 @@ def _provenance_sentence(env: EnvironmentSnapshot) -> str:
     return "All figures are simulated, not live measurements."
 
 
-def _build_run(record: FarmRecord, env: EnvironmentSnapshot) -> AnalysisRun:
+def _build_run(
+    record: FarmRecord,
+    env: EnvironmentSnapshot,
+    context: engine_context.AnalysisContext,
+    crop: Crop | None,
+    stage: GrowthStage,
+) -> AnalysisRun:
     """Score one farm from a single environmental snapshot.
 
     Every section below reads `env`. Nothing regenerates weather, soil or vegetation,
     so the analysis and the environment endpoints are guaranteed to describe the same
     conditions — and the run's provenance is exactly the snapshot's provenance.
+
+    **The context is passed in, never rebuilt here.** `run_analysis` derives the cache
+    key from it, so a context built a second time in this function would be a second
+    question — and any disagreement between the two would store a run under a digest
+    that does not describe it. One context, one digest, one run.
+
+    One context, five engines. The per-section helpers above build their own context
+    and are the seam a single-section caller would use; the run needs the engines' own
+    results rather than the narrowed schemas, because the composite and the advisories
+    read evidence the published shapes have no field for.
     """
     started = datetime.now(UTC)
-
-    planting = primary_planting(record.id)
-    crop = None
-    stage = GrowthStage.not_planted
-    if planting is not None:
-        from app.services.reference_service import get_crop
-
-        crop = get_crop(planting.crop_id)
-        stage = GrowthStage(planting.growth_stage)
-
-    # One context, five engines. The per-section helpers above build their own context
-    # and are the seam a single-section caller would use; the run needs the engines'
-    # own results rather than the narrowed schemas, because the composite and the
-    # advisories read evidence the published shapes have no field for.
-    context = build_context(record, env, crop, stage, planting)
 
     weather_assessment = engine_weather.evaluate(context)
     water_assessment = engine_water.evaluate(context)
@@ -618,26 +623,130 @@ def _build_run(record: FarmRecord, env: EnvironmentSnapshot) -> AnalysisRun:
     )
 
 
+def _latest(farm_id: UUID, user: CurrentUser) -> AnalysisRun | None:
+    """The newest stored run for a farm, from whichever storage is configured."""
+    if _persisted():
+        return analysis_repo.latest_run(farm_id, user.id)
+    return store.latest_run(farm_id)
+
+
+def _runs_for_farm(farm_id: UUID, user: CurrentUser) -> list[AnalysisRun]:
+    """Every stored run for a farm, newest first."""
+    if _persisted():
+        return analysis_repo.runs_for_farm(farm_id, user.id)
+    return store.runs_for_farm(farm_id)
+
+
+def _persisted() -> bool:
+    """Whether analysis runs live in the database on this deployment."""
+    return database_enabled()
+
+
+def _store_run(
+    run: AnalysisRun, context: engine_context.AnalysisContext, user: CurrentUser
+) -> None:
+    """Write one run, with its reproducibility metadata, to the configured storage."""
+    inputs_hash = engine_context.inputs_hash(context)
+
+    if _persisted():
+        analysis_repo.insert_run(
+            run,
+            inputs_hash=inputs_hash,
+            engine_version=context.engine_version,
+            ruleset_version=context.ruleset_version,
+            user_id=user.id,
+        )
+        return
+
+    store.record_run(
+        run,
+        RunMetadata(
+            inputs_hash=inputs_hash,
+            engine_version=context.engine_version,
+            ruleset_version=context.ruleset_version,
+        ),
+    )
+
+
+def _cached_run(
+    farm_id: UUID, context: engine_context.AnalysisContext, user: CurrentUser
+) -> AnalysisRun | None:
+    """A previous run of this exact analysis, if one is still usable.
+
+    Both storage paths answer the same question, clause for clause: same farm, same
+    inputs — provenance included — same engine and ruleset, recent enough to still
+    describe the weather. The offline path used to return the most recent run for the
+    farm regardless of inputs, so changing a farm's crop and re-analysing returned the
+    old crop's score until someone passed `force_refresh`.
+
+    Scoped to the farm even though `inputs_hash` deliberately is not: the payload
+    carries `farm_id` on the run and on every advisory, so another farm's run is the
+    wrong data however identical its inputs were.
+    """
+    inputs_hash = engine_context.inputs_hash(context)
+    not_before = analysis_repo.cache_cutoff(datetime.now(UTC), settings.ANALYSIS_CACHE_TTL_S)
+
+    if not _persisted():
+        return store.find_cached_run(
+            farm_id,
+            inputs_hash,
+            engine_version=context.engine_version,
+            ruleset_version=context.ruleset_version,
+            not_before=not_before,
+        )
+
+    return analysis_repo.find_cached_run(
+        farm_id,
+        inputs_hash,
+        engine_version=context.engine_version,
+        ruleset_version=context.ruleset_version,
+        not_before=not_before,
+        user_id=user.id,
+    )
+
+
 async def run_analysis(
     farm_id: UUID, *, user: CurrentUser, force_refresh: bool = False
 ) -> AnalysisRun:
+    """Analyse a farm, reusing a stored result when the same question was already asked.
+
+    The environment is gathered before the cache is consulted, which looks wasteful and
+    is not: the cache key *is* the environment — every observation and its provenance —
+    so there is nothing to look up until it has been fetched. What the hit saves is the
+    engine work and, once the AI layer lands, a model call.
+    """
     record = require_farm(farm_id, user)
 
+    env = await environment_service.gather_environment(record)
+
+    # Resolved once, here, and handed to `_build_run` — the digest below and the run it
+    # labels must be computed from the same context. `stage` is read off the planting
+    # whether or not the crop resolves, because the planting is what states the stage;
+    # a crop missing from the catalog costs the run its coefficients, not its calendar.
+    planting = primary_planting(record.id)
+    crop = None
+    stage = GrowthStage.not_planted
+    if planting is not None:
+        from app.services.reference_service import get_crop
+
+        crop = get_crop(planting.crop_id)
+        stage = GrowthStage(planting.growth_stage)
+
+    context = build_context(record, env, crop, stage, planting)
+
     if not force_refresh:
-        existing = store.latest_run(farm_id)
+        existing = _cached_run(farm_id, context, user)
         if existing is not None:
             return existing
 
-    env = await environment_service.gather_environment(record)
-    run = _build_run(record, env)
-    with store.lock:
-        store.analysis_runs[run.id] = run
+    run = _build_run(record, env, context, crop, stage)
+    _store_run(run, context, user)
     return run
 
 
 def latest_analysis(farm_id: UUID, user: CurrentUser) -> AnalysisRun:
     require_farm(farm_id, user)
-    run = store.latest_run(farm_id)
+    run = _latest(farm_id, user)
     if run is None:
         raise NoAnalysisYetError(
             "No analysis has been run for this farm yet. POST to "
@@ -661,7 +770,7 @@ def list_runs(farm_id: UUID, *, page: int, page_size: int, user: CurrentUser) ->
             ai_mode=run.ai_mode,
             degraded_sources=run.degraded_sources,
         )
-        for run in store.runs_for_farm(farm_id)
+        for run in _runs_for_farm(farm_id, user)
     ]
     return paginate(AnalysisRunList, summaries, page, page_size)
 
@@ -673,7 +782,7 @@ def get_run(run_id: UUID, user: CurrentUser) -> AnalysisRun:
     farm it belongs to. `require_farm` raises `FARM_NOT_FOUND` for someone else's farm,
     which is deliberately indistinguishable from a run that does not exist.
     """
-    run = store.analysis_runs.get(run_id)
+    run = analysis_repo.get_run(run_id) if _persisted() else store.analysis_runs.get(run_id)
     if run is None:
         raise NoAnalysisYetError(
             f"Analysis run {run_id} does not exist.", details={"run_id": str(run_id)}
@@ -686,7 +795,7 @@ async def dashboard(farm_id: UUID, user: CurrentUser) -> FarmDashboard:
     """Never 404s on a missing analysis — returns `has_analysis: false` instead, so
     a newly registered farm renders an empty state rather than an error."""
     record = require_farm(farm_id, user)
-    run = store.latest_run(farm_id)
+    run = _latest(farm_id, user)
 
     env = await environment_service.gather_environment(record)
     weather = environment_service.to_weather_bundle(env, forecast_days=7, history_days=30)

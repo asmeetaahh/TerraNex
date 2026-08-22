@@ -64,8 +64,16 @@ disjoint directories — git has nothing to conflict over.
 cd backend
 cp .env.example .env          # then fill in the values (see below)
 uv sync                       # creates .venv, installs deps, respects .python-version
+uv run alembic upgrade head   # only if DATABASE_URL is set — see below
 uv run uvicorn app.main:app --reload --port 8000
 ```
+
+**`alembic upgrade head` is required whenever `DATABASE_URL` is set, and it is not run
+automatically.** Migrations are not applied at boot, so a host pointed at an unmigrated
+database fails on startup rather than degrading — and, once analysis runs are persisted,
+an unmigrated database would also mean every analysis is lost on restart. With
+`DATABASE_URL` unset the API runs entirely in memory and needs no migration at all,
+which is what lets a fresh clone boot with nothing provisioned.
 
 Verify:
 

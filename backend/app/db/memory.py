@@ -63,6 +63,21 @@ class FarmCropRecord:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class RunMetadata:
+    """What a stored run needs to be found again by its inputs rather than by recency.
+
+    The database keeps these as columns on `analysis_runs`; the store keeps them beside
+    the run for the same reason. Without them the offline path can only answer "what was
+    the last run for this farm", which is a different question — and returns a stale
+    answer whenever the inputs have changed since.
+    """
+
+    inputs_hash: str
+    engine_version: str
+    ruleset_version: str
+
+
 @dataclass
 class InMemoryStore:
     """The whole Phase 3 dataset. Insertion order is preserved by `dict`, which is
@@ -73,6 +88,10 @@ class InMemoryStore:
     farms: dict[UUID, FarmRecord] = field(default_factory=dict)
     farm_crops: dict[UUID, FarmCropRecord] = field(default_factory=dict)
     analysis_runs: dict[UUID, AnalysisRun] = field(default_factory=dict)
+    #: Reproducibility metadata, keyed by run id. Held alongside rather than on the
+    #: run because `AnalysisRun` is published in the frozen contract and has no
+    #: field for any of it.
+    run_metadata: dict[UUID, RunMetadata] = field(default_factory=dict)
     crop_images: dict[UUID, CropImage] = field(default_factory=dict)
 
     # Guards the mutating paths. Uvicorn runs the event loop in one thread, but
@@ -85,6 +104,7 @@ class InMemoryStore:
             self.farms.clear()
             self.farm_crops.clear()
             self.analysis_runs.clear()
+            self.run_metadata.clear()
             self.crop_images.clear()
 
     # ---- farms ----
@@ -114,6 +134,44 @@ class InMemoryStore:
         return [c for c in self.farm_crops.values() if c.farm_id == farm_id]
 
     # ---- analyses ----
+
+    def record_run(self, run: AnalysisRun, metadata: RunMetadata) -> None:
+        """Store a run together with the metadata that lets it be found by inputs."""
+        with self.lock:
+            self.analysis_runs[run.id] = run
+            self.run_metadata[run.id] = metadata
+
+    def find_cached_run(
+        self,
+        farm_id: UUID,
+        inputs_hash: str,
+        *,
+        engine_version: str,
+        ruleset_version: str,
+        not_before: datetime | None = None,
+    ) -> AnalysisRun | None:
+        """A previous run of this exact analysis, if one is still usable.
+
+        Mirrors `analysis_repo.find_cached_run` clause for clause, so the offline path
+        and the persisted path answer the same question. Before this existed the store
+        returned the most recent run regardless of inputs, which meant changing a
+        farm's crop and re-analysing returned the old crop's score.
+        """
+        for run in self.runs_for_farm(farm_id):
+            metadata = self.run_metadata.get(run.id)
+            if metadata is None:
+                # Written before metadata was recorded; not identifiable by inputs.
+                continue
+            if metadata.inputs_hash != inputs_hash:
+                continue
+            if metadata.engine_version != engine_version:
+                continue
+            if metadata.ruleset_version != ruleset_version:
+                continue
+            if not_before is not None and run.created_at < not_before:
+                continue
+            return run
+        return None
 
     def runs_for_farm(self, farm_id: UUID) -> list[AnalysisRun]:
         """Newest first."""

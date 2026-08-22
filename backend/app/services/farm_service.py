@@ -24,7 +24,7 @@ from uuid import UUID, uuid4
 
 from app.core.deps import CurrentUser
 from app.core.errors import ErrorCode, FarmNotFoundError, NotFoundError
-from app.db import farm_repo
+from app.db import analysis_repo, farm_repo
 from app.db.memory import FarmCropRecord, FarmRecord, store
 from app.db.session import database_enabled
 from app.schemas.crop import (
@@ -68,8 +68,19 @@ def _crop_count(farm_id: UUID) -> int:
 
 
 def _has_analysis(farm_id: UUID) -> bool:
-    """Analysis runs are still held in the in-memory store in this phase, so this
-    reads from there whether or not a database is configured."""
+    """Whether any analysis has been run for this farm.
+
+    Follows the same dual path as every other read: the `analysis_runs` table when a
+    database is configured, the in-memory store otherwise. Reading only the store — as
+    this did while runs were not persisted — reported `has_analysis: false` for a farm
+    whose runs were sitting in the database, which renders the dashboard as a
+    never-analysed farm.
+
+    Not ownership-scoped: the caller has already resolved the farm, and this only
+    reports existence.
+    """
+    if database_enabled():
+        return analysis_repo.latest_run(farm_id) is not None
     return store.latest_run(farm_id) is not None
 
 
