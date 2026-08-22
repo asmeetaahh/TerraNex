@@ -229,7 +229,8 @@ what makes the single-branch workflow safe — the contract cannot silently drif
 | Models, session management, Alembic, database-backed crop catalog and farm CRUD | **done** |
 | Analysis runs — persisted, with `inputs_hash` reuse | **done** |
 | Crop images — persisted, with a stored content digest | **done** |
-| SoilGrids and NASA POWER providers | not started |
+| Soil profiles — persisted per farm, refetched only after the retention window | **done** |
+| NASA POWER provider | not started |
 | Authentication — Supabase JWT verification, `users`, farm ownership | **done** |
 | Gemini reasoning and vision | not started |
 
@@ -260,6 +261,22 @@ storage in this phase, so `url` stays null rather than pointing at nothing.
 Deleting a planting sets its images' `farm_crop_id` to null rather than deleting them.
 A diagnosis is evidence, so removing the planting it was attached to costs the
 photograph its crop link, not its existence.
+
+**Soil is stored per farm; weather deliberately is not.** Soil does not change on any
+timescale this product cares about, so its thirty-day TTL used to live in a
+process-local cache that died with the process — every restart refetched every farm
+from ISRIC, and an outage at that moment degraded the whole estate to simulated
+values. A stored profile now short-circuits the provider entirely and reports
+`mode: "cached"`: real data that was not fetched during this request. Past
+`CACHE_TTL_SOIL_S` it is refetched. A profile stored under a configured simulator stays
+`simulated` on the way out — persistence must never launder a simulation into a
+measurement. Weather has no such table because weather genuinely changed.
+
+**Every timestamp on the wire is UTC with a `Z`.** `DateTime(timezone=True)` is a
+request rather than a guarantee: SQLite has no timestamp type and returns a naive value
+that a browser then parses as *local* time, and Postgres returns the session offset.
+Every repository therefore normalises through `as_utc` on read, so the same record
+reports the same instant in the same format from every endpoint and every backend.
 
 **Persistence is optional and additive.** With `DATABASE_URL` unset the API runs
 entirely on the in-memory store, so the test suite needs no database and a fresh clone

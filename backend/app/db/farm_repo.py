@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 
 from app.db.memory import FarmCropRecord, FarmRecord
 from app.db.session import session_scope
-from app.models import FarmCropORM, FarmORM
+from app.models import FarmCropORM, FarmORM, as_utc
 
 # Columns a farm update may set, mapped straight from `FarmUpdate`. Listed rather than
 # inferred so a future schema field cannot silently become writable.
@@ -53,6 +53,9 @@ PLANTING_UPDATABLE = {
 
 
 def _as_farm_record(row: FarmORM) -> FarmRecord:
+    """Timestamps go through `as_utc`: SQLite drops the timezone and Postgres returns
+    the session offset, so without it the same farm reports `created_at` one way from
+    `POST /farms` (built in memory) and another from `GET /farms/{id}` (read back)."""
     return FarmRecord(
         id=row.id,
         user_id=row.user_id,
@@ -66,9 +69,9 @@ def _as_farm_record(row: FarmORM) -> FarmRecord:
         irrigation_type=row.irrigation_type,
         farming_practice=row.farming_practice,
         notes=row.notes,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        deleted_at=row.deleted_at,
+        created_at=as_utc(row.created_at),
+        updated_at=as_utc(row.updated_at),
+        deleted_at=as_utc(row.deleted_at),
     )
 
 
@@ -84,8 +87,8 @@ def _as_planting_record(row: FarmCropORM) -> FarmCropRecord:
         is_primary=row.is_primary,
         status=row.status,
         notes=row.notes,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
+        created_at=as_utc(row.created_at),
+        updated_at=as_utc(row.updated_at),
     )
 
 

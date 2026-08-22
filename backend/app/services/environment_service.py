@@ -25,7 +25,9 @@ from datetime import UTC, date, datetime, timedelta
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.logging import get_logger
+from app.db import soil_repo
 from app.db.memory import FarmRecord
+from app.db.session import database_enabled
 from app.providers import soil as soil_provider
 from app.providers import weather as weather_provider
 from app.providers.base import (
@@ -126,6 +128,67 @@ class EnvironmentSnapshot:
         return list(dict.fromkeys(self.failed_sources))
 
 
+def _soil_persisted() -> bool:
+    """Whether soil profiles are stored on this deployment.
+
+    With no database the process-local TTL cache remains the whole implementation,
+    unchanged — which is what keeps the offline path and the test suite working with
+    nothing provisioned.
+    """
+    return database_enabled()
+
+
+def _stored_profile(record: FarmRecord) -> soil_repo.StoredProfile | None:
+    """The farm's stored soil, or None when there is none or no database."""
+    if not _soil_persisted():
+        return None
+    return soil_repo.get_profile(record.id)
+
+
+def _stored_meta(stored: soil_repo.StoredProfile) -> DataSourceMeta:
+    """Provenance for a profile served from the database.
+
+    `cached`, never `live` — real data that was not fetched during this request. The
+    original `fetched_at` is reported rather than now, so the age the user sees is the
+    age of the measurement.
+
+    A profile stored under a configured simulator stays `simulated`: persistence must
+    not launder a simulated value into a measurement by re-labelling it on the way out.
+    """
+    stored_mode = DataMode(stored.mode)
+    simulated = stored_mode is DataMode.simulated
+    return DataSourceMeta(
+        source=stored.source,
+        mode=stored_mode if simulated else DataMode.cached,
+        fetched_at=stored.fetched_at,
+        note=(
+            "Stored simulated soil profile; not a measurement."
+            if simulated
+            else "Stored soil profile; soil is re-fetched only after its retention window."
+        ),
+    )
+
+
+def _remember_profile(
+    record: FarmRecord, observation: SoilObservation, meta: DataSourceMeta
+) -> None:
+    """Store a freshly fetched profile, if there is anywhere to store it.
+
+    `meta.fetched_at` is carried through rather than stamped now: it is when the
+    provider answered, and stamping the write time would make the row permanently fresh
+    so nothing would ever expire.
+    """
+    if not _soil_persisted():
+        return
+    soil_repo.upsert_profile(
+        record.id,
+        observation,
+        source=meta.source,
+        mode=meta.mode,
+        fetched_at=meta.fetched_at,
+    )
+
+
 async def _gather_soil(
     record: FarmRecord,
     latitude: float,
@@ -147,13 +210,43 @@ async def _gather_soil(
     * **simulated by configuration** — the operator asked for the simulator. That is a
       stated capability rather than a fault, so it is labelled `simulated` and is
       deliberately **not** recorded as a failure.
+
+    **A stored profile is consulted first.** Soil does not change on any timescale this
+    product cares about, which is why its TTL is thirty days — but that TTL lived in a
+    process-local cache, so every restart refetched every farm and a provider outage at
+    that moment degraded the whole estate to simulated values. A fresh stored profile
+    short-circuits the provider entirely and is reported `cached`: the data is real but
+    was not fetched during this request, which is exactly what `cached` means.
     """
+    stored = _stored_profile(record)
+    now = datetime.now(UTC)
+
+    if stored is not None and stored.is_fresh(now, settings.CACHE_TTL_SOIL_S):
+        return stored.observation, _stored_meta(stored)
+
     result = await soil_provider.get_soil(latitude, longitude)
 
     if result.ok and result.data is not None:
+        _remember_profile(record, result.data, result.meta)
         return result.data, result.meta
 
     failed_sources.append(result.meta.source)
+
+    # The provider failed and the stored profile is stale. Stale measurements still beat
+    # invented ones: serving them keeps real numbers in front of the user, and the
+    # failure is already recorded above, so the run reports degraded provenance either
+    # way. A simulated fallback here would replace measurements with fiction.
+    if stored is not None:
+        age_days = max(0, (now - stored.fetched_at).days)
+        return stored.observation, DataSourceMeta(
+            source=stored.source,
+            mode=DataMode.cached,
+            fetched_at=stored.fetched_at,
+            note=(
+                f"{result.meta.source} was unavailable ({result.meta.note}); "
+                f"showing the stored profile from {age_days} day(s) ago."
+            ),
+        )
 
     if not settings.SOIL_FALLBACK_TO_SIMULATION:
         return SoilObservation(), result.meta

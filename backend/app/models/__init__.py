@@ -6,10 +6,11 @@ new model cannot be left out of a migration by being forgotten here.
 """
 
 from app.models.analysis import AnalysisRunORM
-from app.models.base import Base
+from app.models.base import Base, as_utc
 from app.models.crop import CropORM
 from app.models.farm import FarmCropORM, FarmORM
 from app.models.image import CropImageORM
+from app.models.soil import SoilProfileORM
 from app.models.user import UserORM
 
 __all__ = [
@@ -19,5 +20,7 @@ __all__ = [
     "CropORM",
     "FarmCropORM",
     "FarmORM",
+    "SoilProfileORM",
     "UserORM",
+    "as_utc",
 ]

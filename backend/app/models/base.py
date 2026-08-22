@@ -48,6 +48,34 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def as_utc(value: datetime | None) -> datetime | None:
+    """Normalise a timestamp read back from storage to UTC.
+
+    **Apply this to every `DateTime` column a repository returns.** `DateTime(timezone
+    =True)` is a request, not a guarantee, and the two supported backends honour it
+    differently:
+
+    * **SQLite** has no timestamp type at all and hands back a *naive* datetime.
+      Pydantic then serialises it with no suffix, and `new Date("…T19:35:03.333914")`
+      in a browser parses that as **local time** — so the value is wrong by the
+      viewer's UTC offset, not merely formatted differently.
+    * **Postgres** returns an aware datetime in the session time zone, which
+      serialises as `+05:30` rather than `Z`. The instant is right; the wire format
+      still is not what the contract documents.
+    * The **in-memory** path never round-trips at all and keeps its original UTC.
+
+    So the same record could report its `created_at` three different ways depending on
+    where it was stored and which endpoint was asked. Everything is *written* as UTC
+    (`utcnow`), which is what makes normalising on read a restoration rather than a
+    guess: a naive value is stamped UTC, an aware one is converted to it.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def enum_values(enum_cls: type) -> list[str]:
     """The permitted string values of a `StrEnum`, for a CHECK constraint."""
     return [member.value for member in enum_cls]

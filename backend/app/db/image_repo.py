@@ -14,31 +14,13 @@ frozen contract and has no `sha256` field, so the functions here take and return
 separately. It is what makes a diagnosis reproducible, so losing it is not cosmetic.
 """
 
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
 
 from app.db.session import session_scope
-from app.models import CropImageORM
+from app.models import CropImageORM, as_utc
 from app.schemas.image import CropImage
-
-
-def _utc(value: datetime | None) -> datetime | None:
-    """Re-attach UTC to a timestamp that lost it in storage.
-
-    `DateTime(timezone=True)` is honoured by Postgres and **ignored by SQLite**, which
-    has no timestamp type and hands back a naive datetime. Pydantic then serialises it
-    without the trailing `Z`, so the same image would report
-    `2026-08-22T19:08:25.666826` on SQLite and `…Z` on Postgres — a contract violation
-    on one of the two supported configurations.
-
-    The values are written as UTC (`utcnow`), so attaching UTC to a naive one restores
-    what was stored rather than guessing at it.
-    """
-    if value is None or value.tzinfo is not None:
-        return value
-    return value.replace(tzinfo=UTC)
 
 
 def _as_image(row: CropImageORM) -> CropImage:
@@ -67,8 +49,8 @@ def _as_image(row: CropImageORM) -> CropImage:
         model=row.model,
         prompt_version=row.prompt_version,
         ai_mode=row.ai_mode,
-        uploaded_at=_utc(row.uploaded_at),
-        analyzed_at=_utc(row.analyzed_at),
+        uploaded_at=as_utc(row.uploaded_at),
+        analyzed_at=as_utc(row.analyzed_at),
     )
 
 
