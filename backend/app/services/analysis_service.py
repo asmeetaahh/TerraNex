@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from app.core.deps import CurrentUser
 from app.core.errors import NoAnalysisYetError
 from app.db.memory import FarmRecord, store
 from app.providers.base import DailyObservation
@@ -51,7 +52,13 @@ from app.schemas.soil import SoilAssessment
 from app.schemas.vegetation import CropHealth
 from app.services import environment_service
 from app.services.environment_service import EnvironmentSnapshot
-from app.services.farm_service import _to_farm, _to_farm_crop, primary_planting, require_farm
+from app.services.farm_service import (
+    _to_farm,
+    _to_farm_crop,
+    plantings_for_farm,
+    primary_planting,
+    require_farm,
+)
 from app.services.reference_service import _ensure_catalog, paginate
 from app.services.simulation import seeded_rng
 
@@ -1498,8 +1505,10 @@ def _build_run(record: FarmRecord, env: EnvironmentSnapshot) -> AnalysisRun:
     )
 
 
-async def run_analysis(farm_id: UUID, *, force_refresh: bool = False) -> AnalysisRun:
-    record = require_farm(farm_id)
+async def run_analysis(
+    farm_id: UUID, *, user: CurrentUser, force_refresh: bool = False
+) -> AnalysisRun:
+    record = require_farm(farm_id, user)
 
     if not force_refresh:
         existing = store.latest_run(farm_id)
@@ -1513,8 +1522,8 @@ async def run_analysis(farm_id: UUID, *, force_refresh: bool = False) -> Analysi
     return run
 
 
-def latest_analysis(farm_id: UUID) -> AnalysisRun:
-    require_farm(farm_id)
+def latest_analysis(farm_id: UUID, user: CurrentUser) -> AnalysisRun:
+    require_farm(farm_id, user)
     run = store.latest_run(farm_id)
     if run is None:
         raise NoAnalysisYetError(
@@ -1525,8 +1534,8 @@ def latest_analysis(farm_id: UUID) -> AnalysisRun:
     return run
 
 
-def list_runs(farm_id: UUID, *, page: int, page_size: int) -> AnalysisRunList:
-    require_farm(farm_id)
+def list_runs(farm_id: UUID, *, page: int, page_size: int, user: CurrentUser) -> AnalysisRunList:
+    require_farm(farm_id, user)
     summaries = [
         AnalysisRunSummary(
             id=run.id,
@@ -1544,19 +1553,26 @@ def list_runs(farm_id: UUID, *, page: int, page_size: int) -> AnalysisRunList:
     return paginate(AnalysisRunList, summaries, page, page_size)
 
 
-def get_run(run_id: UUID) -> AnalysisRun:
+def get_run(run_id: UUID, user: CurrentUser) -> AnalysisRun:
+    """A stored run, scoped to its farm's owner.
+
+    The run is addressed by its own id, so ownership has to be resolved through the
+    farm it belongs to. `require_farm` raises `FARM_NOT_FOUND` for someone else's farm,
+    which is deliberately indistinguishable from a run that does not exist.
+    """
     run = store.analysis_runs.get(run_id)
     if run is None:
         raise NoAnalysisYetError(
             f"Analysis run {run_id} does not exist.", details={"run_id": str(run_id)}
         )
+    require_farm(UUID(str(run.farm_id)), user)
     return run
 
 
-async def dashboard(farm_id: UUID) -> FarmDashboard:
+async def dashboard(farm_id: UUID, user: CurrentUser) -> FarmDashboard:
     """Never 404s on a missing analysis — returns `has_analysis: false` instead, so
     a newly registered farm renders an empty state rather than an error."""
-    record = require_farm(farm_id)
+    record = require_farm(farm_id, user)
     run = store.latest_run(farm_id)
 
     env = await environment_service.gather_environment(record)
@@ -1564,7 +1580,9 @@ async def dashboard(farm_id: UUID) -> FarmDashboard:
 
     return FarmDashboard(
         farm=_to_farm(record),
-        crops=[_to_farm_crop(c) for c in store.crops_for_farm(farm_id)],
+        # Through `farm_service` rather than the store directly, so the dashboard
+        # shows persisted plantings when a database is configured.
+        crops=[_to_farm_crop(c) for c in plantings_for_farm(farm_id)],
         has_analysis=run is not None,
         analysis=run,
         current_weather=weather.current,
@@ -1578,20 +1596,20 @@ async def dashboard(farm_id: UUID) -> FarmDashboard:
 # ---- projections of the latest run ----
 
 
-def weather_risk(farm_id: UUID) -> WeatherRisk:
-    return latest_analysis(farm_id).weather_risk
+def weather_risk(farm_id: UUID, user: CurrentUser) -> WeatherRisk:
+    return latest_analysis(farm_id, user).weather_risk
 
 
-def water_risk(farm_id: UUID) -> WaterRisk:
-    return latest_analysis(farm_id).water_risk
+def water_risk(farm_id: UUID, user: CurrentUser) -> WaterRisk:
+    return latest_analysis(farm_id, user).water_risk
 
 
-def disease_risk(farm_id: UUID) -> DiseaseRisk:
-    return latest_analysis(farm_id).disease_risk
+def disease_risk(farm_id: UUID, user: CurrentUser) -> DiseaseRisk:
+    return latest_analysis(farm_id, user).disease_risk
 
 
-def crop_health(farm_id: UUID) -> CropHealth:
-    return latest_analysis(farm_id).crop_health
+def crop_health(farm_id: UUID, user: CurrentUser) -> CropHealth:
+    return latest_analysis(farm_id, user).crop_health
 
 
 def advisories(
@@ -1602,8 +1620,9 @@ def advisories(
     include_dismissed: bool,
     page: int,
     page_size: int,
+    user: CurrentUser,
 ) -> AdvisoryList:
-    items = list(latest_analysis(farm_id).advisories)
+    items = list(latest_analysis(farm_id, user).advisories)
     if category is not None:
         items = [a for a in items if a.category == category]
     if priority is not None:
@@ -1613,11 +1632,13 @@ def advisories(
     return paginate(AdvisoryList, items, page, page_size)
 
 
-def crop_recommendations(farm_id: UUID, *, limit: int) -> CropRecommendationList:
-    items = latest_analysis(farm_id).crop_recommendations[:limit]
+def crop_recommendations(farm_id: UUID, *, limit: int, user: CurrentUser) -> CropRecommendationList:
+    items = latest_analysis(farm_id, user).crop_recommendations[:limit]
     return paginate(CropRecommendationList, items, 1, max(limit, 1))
 
 
-def regenerative_recommendations(farm_id: UUID, *, limit: int) -> RegenerativeRecommendationList:
-    items = latest_analysis(farm_id).regenerative_recommendations[:limit]
+def regenerative_recommendations(
+    farm_id: UUID, *, limit: int, user: CurrentUser
+) -> RegenerativeRecommendationList:
+    items = latest_analysis(farm_id, user).regenerative_recommendations[:limit]
     return paginate(RegenerativeRecommendationList, items, 1, max(limit, 1))

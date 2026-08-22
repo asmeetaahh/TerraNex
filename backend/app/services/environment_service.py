@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
 from app.core.config import settings
+from app.core.deps import CurrentUser
 from app.core.logging import get_logger
 from app.db.memory import FarmRecord
 from app.providers import weather as weather_provider
@@ -392,16 +393,18 @@ def to_vegetation_series(env: EnvironmentSnapshot, *, days: int) -> VegetationSe
 # --------------------------------------------------------------------------
 
 
-async def weather_for_farm(farm_id, *, forecast_days: int, history_days: int) -> WeatherBundle:
-    env = await gather_environment(require_farm(farm_id))
+async def weather_for_farm(
+    farm_id, *, forecast_days: int, history_days: int, user: CurrentUser
+) -> WeatherBundle:
+    env = await gather_environment(require_farm(farm_id, user))
     return to_weather_bundle(env, forecast_days=forecast_days, history_days=history_days)
 
 
-async def soil_for_farm(farm_id) -> SoilProfile:
-    env = await gather_environment(require_farm(farm_id))
+async def soil_for_farm(farm_id, user: CurrentUser) -> SoilProfile:
+    env = await gather_environment(require_farm(farm_id, user))
     return to_soil_profile(env)
 
 
-async def vegetation_for_farm(farm_id, *, days: int) -> VegetationSeries:
-    env = await gather_environment(require_farm(farm_id))
+async def vegetation_for_farm(farm_id, *, days: int, user: CurrentUser) -> VegetationSeries:
+    env = await gather_environment(require_farm(farm_id, user))
     return to_vegetation_series(env, days=days)

@@ -1,7 +1,9 @@
 # TerraNex — Architecture
 
-> Status: the contract is complete and published. Most behaviour is still to be
-> implemented. Section 9 tracks exactly what is live today.
+> Status: the contract is complete, published and frozen. Every declared path is
+> implemented, on real providers, a deterministic risk engine, and optional Postgres
+> persistence with Supabase authentication. Gemini reasoning and vision are the main
+> outstanding pieces. Section 9 tracks exactly what is live today.
 
 ---
 
@@ -169,12 +171,28 @@ should only ever fire when *every* input fails at once.
 validated at import. Every key is documented in `backend/.env.example`. Real secrets
 live only in `.env` (gitignored) and the deployment host's dashboard.
 
-**Authentication** — deliberately deferred. `ENABLE_AUTH=false` attributes every
-request to a seeded demo user, so the frontend can build every screen before login
-exists. When it is enabled, the frontend obtains a Supabase JWT and sends
-`Authorization: Bearer …`; the backend verifies it and resolves ownership. **No
-request or response shape changes when auth is turned on** — only the identity behind
-`user_id`.
+**Authentication** — `ENABLE_AUTH=false` attributes every request to a seeded demo
+user, so the frontend can build every screen before login exists. With it enabled, the
+frontend obtains a Supabase JWT and sends `Authorization: Bearer …`; the backend
+verifies it with PyJWT — JWKS for RS256/ES256 projects, the `SUPABASE_JWT_SECRET`
+shared secret for HS256 — resolves the `sub` claim to a local `users` row, and scopes
+every farm read and write to it. **No request or response shape changes when auth is
+turned on**, and neither does any path, method, field, status code, or the generated
+OpenAPI document.
+
+That last point constrains the implementation: the current-user dependency is a plain
+function reading the `Authorization` header, **not** `fastapi.security.HTTPBearer`. A
+security scheme would add `securitySchemes` and a per-path `security` block to the
+generated schema, and `contracts/openapi.json` is frozen and drives the frontend's
+generated types. The cost is that Swagger renders no "Authorize" button — a caller
+must set the header itself.
+
+A farm owned by another user is reported as `FARM_NOT_FOUND`, not `FORBIDDEN`. A 403
+would confirm the id exists; a 404 tells an unauthorised caller nothing. `FORBIDDEN`
+stays in the taxonomy for resources whose existence is not itself sensitive.
+
+`SUPABASE_SERVICE_ROLE_KEY` is never read by the authentication path. It bypasses every
+policy in the project and belongs only to server-to-server storage calls.
 
 **CORS** — an explicit origin allowlist from `CORS_ORIGINS`, never `*` alongside
 credentials. `X-Request-Id` is in `expose_headers` so the browser can read it.
@@ -203,15 +221,22 @@ what makes the single-branch workflow safe — the contract cannot silently drif
 | Error taxonomy and envelope | **done** |
 | Pydantic schemas — 69 published in the contract | **done** |
 | All 26 MVP paths declared with final request/response models | **done** |
-| `GET /health`, `/health/ready`, `/reference/enums` | **done** |
-| Remaining 30 operations | scaffolded, return `501 NOT_IMPLEMENTED` |
-| Seeded fixture responses | next |
-| Database, models, migrations | not started |
-| External providers | not started |
-| Deterministic risk engine | not started |
+| Every one of the 26 paths implemented — no route returns `501` | **done** |
+| Deterministic seeded responses, stable `uuid5` crop and demo ids | **done** |
+| External providers — Open-Meteo weather and geocoding, TTL cache, wall-clock budget, labelled degradation | **done** |
+| Deterministic risk engine — weather, water, disease, soil, composite `ScoredFactor`s | **done** |
+| Geography-aware climate simulation for the offline and fallback path | **done** |
+| Models, session management, Alembic, database-backed crop catalog and farm CRUD | **done** |
+| Analysis runs and crop images | still served from the in-memory store |
+| SoilGrids and NASA POWER providers | not started |
+| Authentication — Supabase JWT verification, `users`, farm ownership | **done** |
 | Gemini reasoning and vision | not started |
 
-Each scaffolded route names its intended step in `error.details.planned_step`.
+**Persistence is optional and additive.** With `DATABASE_URL` unset the API runs
+entirely on the in-memory store, so the test suite needs no database and a fresh clone
+boots with nothing provisioned. With it set, the crop catalog, farms and plantings are
+read from and written to Postgres, and survive a restart. No request or response shape
+differs between the two, which is what let the migration proceed one service at a time.
 
 ---
 

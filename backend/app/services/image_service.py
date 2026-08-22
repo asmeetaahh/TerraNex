@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from app.core.config import settings
+from app.core.deps import CurrentUser
 from app.core.errors import (
     ErrorCode,
     ImageTooLargeError,
@@ -31,7 +32,11 @@ from app.schemas.image import (
     DifferentialItem,
     TreatmentOption,
 )
-from app.services.farm_service import require_farm
+from app.services.farm_service import (
+    _require_planting,
+    find_planting,
+    require_farm,
+)
 from app.services.reference_service import get_crop, paginate
 from app.services.simulation import seeded_rng
 
@@ -227,19 +232,17 @@ def upload_image(
     farm_crop_id: UUID | None,
     note: str | None,
     analyze: bool,
+    user: CurrentUser,
 ) -> CropImage:
-    require_farm(farm_id)
+    require_farm(farm_id, user)
     _validate(content_type, data, filename)
 
     if farm_crop_id is not None:
-        planting = store.farm_crops.get(farm_crop_id)
-        if planting is None or planting.farm_id != farm_id:
-            from app.services.farm_service import CropNotFoundError
-
-            raise CropNotFoundError(
-                f"Planting {farm_crop_id} does not exist on farm {farm_id}.",
-                details={"farm_id": str(farm_id), "farm_crop_id": str(farm_crop_id)},
-            )
+        # `_require_planting` dispatches to whichever backend holds plantings and
+        # raises the same CropNotFoundError this used to build by hand, so the error
+        # envelope is unchanged. Reading the store directly meant attaching an image
+        # to a planting 404'd as soon as plantings lived in the database.
+        _require_planting(farm_id, farm_crop_id)
 
     width, height = _dimensions(data)
     digest = hashlib.sha256(data).hexdigest()
@@ -272,7 +275,7 @@ def upload_image(
     _DIGESTS[image.id] = digest
 
     if analyze:
-        return analyze_image(image.id)
+        return analyze_image(image.id, user)
     return image
 
 
@@ -291,7 +294,7 @@ def _simulate_diagnosis(image: CropImage) -> CropImageAnalysis:
 
     crop_name = None
     if image.farm_crop_id is not None:
-        planting = store.farm_crops.get(image.farm_crop_id)
+        planting = find_planting(image.farm_id, image.farm_crop_id)
         if planting is not None:
             crop = get_crop(planting.crop_id)
             crop_name = crop.code if crop else None
@@ -332,8 +335,10 @@ def _simulate_diagnosis(image: CropImage) -> CropImageAnalysis:
     )
 
 
-def analyze_image(image_id: UUID) -> CropImage:
-    image = get_image(image_id)
+def analyze_image(image_id: UUID, user: CurrentUser) -> CropImage:
+    # `get_image` resolves ownership through the image's farm, so analysing someone
+    # else's image is refused before any work is done.
+    image = get_image(image_id, user)
     analysis = _simulate_diagnosis(image)
 
     updated = image.model_copy(
@@ -353,15 +358,22 @@ def analyze_image(image_id: UUID) -> CropImage:
     return updated
 
 
-def get_image(image_id: UUID) -> CropImage:
+def get_image(image_id: UUID, user: CurrentUser) -> CropImage:
+    """A stored image, scoped to its farm's owner.
+
+    The image is addressed by its own id, so ownership is resolved through the farm it
+    belongs to. Someone else's image is `FARM_NOT_FOUND`, deliberately
+    indistinguishable from an image that does not exist.
+    """
     image = store.crop_images.get(image_id)
     if image is None:
         raise ImageNotFoundError(
             f"Crop image {image_id} does not exist.", details={"image_id": str(image_id)}
         )
+    require_farm(UUID(str(image.farm_id)), user)
     return image
 
 
-def list_images(farm_id: UUID, *, page: int, page_size: int) -> CropImageList:
-    require_farm(farm_id)
+def list_images(farm_id: UUID, *, page: int, page_size: int, user: CurrentUser) -> CropImageList:
+    require_farm(farm_id, user)
     return paginate(CropImageList, store.images_for_farm(farm_id), page, page_size)

@@ -1,20 +1,30 @@
 """Farm registration and per-farm crop plantings.
 
-Ownership is resolved server-side. While `ENABLE_AUTH=false` every farm belongs to the
-seeded demo user, so the frontend can build the full registration flow before login
-exists. Turning auth on later changes no request or response shape.
+Ownership is resolved server-side by the `CurrentUser` dependency. While
+`ENABLE_AUTH=false` every farm belongs to the seeded demo user, so the frontend can
+build the full registration flow before login exists. Turning auth on changes no
+request or response shape, and no path, method, field or status code.
+
+The dependency is a plain function rather than `fastapi.security.HTTPBearer`, because a
+security scheme would add `securitySchemes` and a per-path `security` block to the
+generated OpenAPI and `contracts/openapi.json` is frozen. See `app.core.deps`.
 """
 
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Response, status
 
+from app.core.deps import CurrentUser, get_current_user
 from app.schemas.crop import FarmCrop, FarmCropCreate, FarmCropList, FarmCropUpdate
 from app.schemas.farm import Farm, FarmCreate, FarmList, FarmUpdate
 from app.services import farm_service
 
 router = APIRouter(prefix="/farms", tags=["farms"])
+
+# The resolved identity every farm operation is scoped to. Contributes nothing to the
+# OpenAPI document — verified, so the frozen contract stays byte-identical.
+Caller = Annotated[CurrentUser, Depends(get_current_user)]
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 FarmCropId = Annotated[UUID, Path(description="Farm-crop (planting) identifier.")]
@@ -29,16 +39,17 @@ FarmCropId = Annotated[UUID, Path(description="Farm-crop (planting) identifier."
         "Creates a farm at the given coordinates. Coordinates drive every downstream data lookup."
     ),
 )
-async def create_farm(payload: FarmCreate) -> Farm:
-    return farm_service.create_farm(payload)
+async def create_farm(payload: FarmCreate, user: Caller) -> Farm:
+    return farm_service.create_farm(payload, user)
 
 
 @router.get("", response_model=FarmList, summary="List farms")
 async def list_farms(
+    user: Caller,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> FarmList:
-    return farm_service.list_farms(page=page, page_size=page_size)
+    return farm_service.list_farms(page=page, page_size=page_size, user=user)
 
 
 @router.get(
@@ -47,8 +58,8 @@ async def list_farms(
     summary="Get a farm",
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
-async def get_farm(farm_id: FarmId) -> Farm:
-    return farm_service.get_farm(farm_id)
+async def get_farm(farm_id: FarmId, user: Caller) -> Farm:
+    return farm_service.get_farm(farm_id, user)
 
 
 @router.patch(
@@ -58,8 +69,8 @@ async def get_farm(farm_id: FarmId) -> Farm:
     description="Partial update. Omitted fields are left unchanged.",
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
-async def update_farm(farm_id: FarmId, payload: FarmUpdate) -> Farm:
-    return farm_service.update_farm(farm_id, payload)
+async def update_farm(farm_id: FarmId, payload: FarmUpdate, user: Caller) -> Farm:
+    return farm_service.update_farm(farm_id, payload, user)
 
 
 @router.delete(
@@ -69,8 +80,8 @@ async def update_farm(farm_id: FarmId, payload: FarmUpdate) -> Farm:
     description="Soft delete. Historical analysis runs are retained.",
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
-async def delete_farm(farm_id: FarmId) -> Response:
-    farm_service.delete_farm(farm_id)
+async def delete_farm(farm_id: FarmId, user: Caller) -> Response:
+    farm_service.delete_farm(farm_id, user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -87,8 +98,8 @@ async def delete_farm(farm_id: FarmId) -> Response:
     description="Attaches a catalog crop to this farm with planting dates and growth stage.",
     responses={404: {"description": "FARM_NOT_FOUND or CROP_NOT_FOUND"}},
 )
-async def add_farm_crop(farm_id: FarmId, payload: FarmCropCreate) -> FarmCrop:
-    return farm_service.add_farm_crop(farm_id, payload)
+async def add_farm_crop(farm_id: FarmId, payload: FarmCropCreate, user: Caller) -> FarmCrop:
+    return farm_service.add_farm_crop(farm_id, payload, user)
 
 
 @router.get(
@@ -99,10 +110,11 @@ async def add_farm_crop(farm_id: FarmId, payload: FarmCropCreate) -> FarmCrop:
 )
 async def list_farm_crops(
     farm_id: FarmId,
+    user: Caller,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> FarmCropList:
-    return farm_service.list_farm_crops(farm_id, page=page, page_size=page_size)
+    return farm_service.list_farm_crops(farm_id, page=page, page_size=page_size, user=user)
 
 
 @router.patch(
@@ -113,9 +125,9 @@ async def list_farm_crops(
     responses={404: {"description": "FARM_NOT_FOUND or CROP_NOT_FOUND"}},
 )
 async def update_farm_crop(
-    farm_id: FarmId, farm_crop_id: FarmCropId, payload: FarmCropUpdate
+    farm_id: FarmId, farm_crop_id: FarmCropId, payload: FarmCropUpdate, user: Caller
 ) -> FarmCrop:
-    return farm_service.update_farm_crop(farm_id, farm_crop_id, payload)
+    return farm_service.update_farm_crop(farm_id, farm_crop_id, payload, user)
 
 
 @router.delete(
@@ -124,6 +136,6 @@ async def update_farm_crop(
     summary="Remove a crop from a farm",
     responses={404: {"description": "FARM_NOT_FOUND or CROP_NOT_FOUND"}},
 )
-async def delete_farm_crop(farm_id: FarmId, farm_crop_id: FarmCropId) -> Response:
-    farm_service.delete_farm_crop(farm_id, farm_crop_id)
+async def delete_farm_crop(farm_id: FarmId, farm_crop_id: FarmCropId, user: Caller) -> Response:
+    farm_service.delete_farm_crop(farm_id, farm_crop_id, user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -40,6 +40,9 @@ class FarmRecord:
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
+    # Set server-side from the resolved identity, never from a request body. Optional
+    # so records written before ownership existed still construct.
+    user_id: UUID | None = None
 
 
 @dataclass
@@ -86,12 +89,24 @@ class InMemoryStore:
 
     # ---- farms ----
 
-    def live_farms(self) -> list[FarmRecord]:
-        return [f for f in self.farms.values() if f.deleted_at is None]
+    def live_farms(self, user_id: UUID | None = None) -> list[FarmRecord]:
+        """Live farms, optionally only those owned by `user_id`.
 
-    def get_farm(self, farm_id: UUID) -> FarmRecord | None:
+        A null owner belongs to the pre-ownership era and is visible only when no
+        particular owner is asked for.
+        """
+        farms = [f for f in self.farms.values() if f.deleted_at is None]
+        if user_id is None:
+            return farms
+        return [f for f in farms if f.user_id == user_id]
+
+    def get_farm(self, farm_id: UUID, user_id: UUID | None = None) -> FarmRecord | None:
         record = self.farms.get(farm_id)
-        return record if record is not None and record.deleted_at is None else None
+        if record is None or record.deleted_at is not None:
+            return None
+        if user_id is not None and record.user_id != user_id:
+            return None
+        return record
 
     # ---- plantings ----
 

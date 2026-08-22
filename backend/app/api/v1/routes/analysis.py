@@ -12,8 +12,9 @@ the cost of one analysis.
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 
+from app.core.deps import CurrentUser, get_current_user
 from app.schemas.advisory import AdvisoryList
 from app.schemas.analysis import AnalysisRun, AnalysisRunList, FarmDashboard
 from app.schemas.enums import AdvisoryCategory, AdvisoryPriority
@@ -22,6 +23,10 @@ from app.schemas.vegetation import CropHealth
 from app.services import analysis_service
 
 router = APIRouter(tags=["analysis"])
+
+# The resolved identity every farm-scoped operation is checked against. Contributes
+# nothing to the OpenAPI document, so the frozen contract stays byte-identical.
+Caller = Annotated[CurrentUser, Depends(get_current_user)]
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 
@@ -59,11 +64,12 @@ _PROJECTION_ERRORS = {404: {"description": "FARM_NOT_FOUND or NO_ANALYSIS_YET"}}
 )
 async def run_analysis(
     farm_id: FarmId,
+    user: Caller,
     force_refresh: Annotated[
         bool, Query(description="Bypass the cache and recompute from scratch.")
     ] = False,
 ) -> AnalysisRun:
-    return await analysis_service.run_analysis(farm_id, force_refresh=force_refresh)
+    return await analysis_service.run_analysis(farm_id, user=user, force_refresh=force_refresh)
 
 
 @router.get(
@@ -73,8 +79,8 @@ async def run_analysis(
     description="The most recent stored run. Returns NO_ANALYSIS_YET if none exists.",
     responses=_PROJECTION_ERRORS,
 )
-async def get_latest_analysis(farm_id: FarmId) -> AnalysisRun:
-    return analysis_service.latest_analysis(farm_id)
+async def get_latest_analysis(farm_id: FarmId, user: Caller) -> AnalysisRun:
+    return analysis_service.latest_analysis(farm_id, user)
 
 
 @router.get(
@@ -86,10 +92,11 @@ async def get_latest_analysis(farm_id: FarmId) -> AnalysisRun:
 )
 async def list_analysis_runs(
     farm_id: FarmId,
+    user: Caller,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 20,
 ) -> AnalysisRunList:
-    return analysis_service.list_runs(farm_id, page=page, page_size=page_size)
+    return analysis_service.list_runs(farm_id, page=page, page_size=page_size, user=user)
 
 
 @router.get(
@@ -102,8 +109,9 @@ async def list_analysis_runs(
 )
 async def get_analysis_run(
     run_id: Annotated[UUID, Path(description="Analysis run identifier.")],
+    user: Caller,
 ) -> AnalysisRun:
-    return analysis_service.get_run(run_id)
+    return analysis_service.get_run(run_id, user)
 
 
 # --------------------------------------------------------------------------
@@ -124,8 +132,8 @@ async def get_analysis_run(
     ),
     responses={404: {"description": "FARM_NOT_FOUND"}},
 )
-async def get_dashboard(farm_id: FarmId) -> FarmDashboard:
-    return await analysis_service.dashboard(farm_id)
+async def get_dashboard(farm_id: FarmId, user: Caller) -> FarmDashboard:
+    return await analysis_service.dashboard(farm_id, user)
 
 
 # --------------------------------------------------------------------------
@@ -140,8 +148,8 @@ async def get_dashboard(farm_id: FarmId) -> FarmDashboard:
     description="Weather-risk section of the latest analysis run.",
     responses=_PROJECTION_ERRORS,
 )
-async def get_weather_risk(farm_id: FarmId) -> WeatherRisk:
-    return analysis_service.weather_risk(farm_id)
+async def get_weather_risk(farm_id: FarmId, user: Caller) -> WeatherRisk:
+    return analysis_service.weather_risk(farm_id, user)
 
 
 @router.get(
@@ -154,8 +162,8 @@ async def get_weather_risk(farm_id: FarmId) -> WeatherRisk:
     ),
     responses=_PROJECTION_ERRORS,
 )
-async def get_water_risk(farm_id: FarmId) -> WaterRisk:
-    return analysis_service.water_risk(farm_id)
+async def get_water_risk(farm_id: FarmId, user: Caller) -> WaterRisk:
+    return analysis_service.water_risk(farm_id, user)
 
 
 @router.get(
@@ -168,8 +176,8 @@ async def get_water_risk(farm_id: FarmId) -> WaterRisk:
     ),
     responses=_PROJECTION_ERRORS,
 )
-async def get_disease_risk(farm_id: FarmId) -> DiseaseRisk:
-    return analysis_service.disease_risk(farm_id)
+async def get_disease_risk(farm_id: FarmId, user: Caller) -> DiseaseRisk:
+    return analysis_service.disease_risk(farm_id, user)
 
 
 @router.get(
@@ -181,8 +189,8 @@ async def get_disease_risk(farm_id: FarmId) -> DiseaseRisk:
     ),
     responses=_PROJECTION_ERRORS,
 )
-async def get_crop_health(farm_id: FarmId) -> CropHealth:
-    return analysis_service.crop_health(farm_id)
+async def get_crop_health(farm_id: FarmId, user: Caller) -> CropHealth:
+    return analysis_service.crop_health(farm_id, user)
 
 
 @router.get(
@@ -197,6 +205,7 @@ async def get_crop_health(farm_id: FarmId) -> CropHealth:
 )
 async def list_advisories(
     farm_id: FarmId,
+    user: Caller,
     category: Annotated[AdvisoryCategory | None, Query()] = None,
     priority: Annotated[AdvisoryPriority | None, Query()] = None,
     include_dismissed: Annotated[bool, Query()] = False,
@@ -210,4 +219,5 @@ async def list_advisories(
         include_dismissed=include_dismissed,
         page=page,
         page_size=page_size,
+        user=user,
     )

@@ -11,14 +11,19 @@ Every response carries `meta.mode`. Until real providers are wired in it reports
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 
+from app.core.deps import CurrentUser, get_current_user
 from app.schemas.soil import SoilProfile
 from app.schemas.vegetation import VegetationSeries
 from app.schemas.weather import WeatherBundle
 from app.services import environment_service
 
 router = APIRouter(prefix="/farms", tags=["environment"])
+
+# The resolved identity every farm-scoped operation is checked against. Contributes
+# nothing to the OpenAPI document, so the frozen contract stays byte-identical.
+Caller = Annotated[CurrentUser, Depends(get_current_user)]
 
 FarmId = Annotated[UUID, Path(description="Farm identifier.")]
 
@@ -39,11 +44,12 @@ _NOT_FOUND = {404: {"description": "FARM_NOT_FOUND"}}
 )
 async def get_weather(
     farm_id: FarmId,
+    user: Caller,
     forecast_days: Annotated[int, Query(ge=1, le=16)] = 7,
     history_days: Annotated[int, Query(ge=1, le=90)] = 30,
 ) -> WeatherBundle:
     return await environment_service.weather_for_farm(
-        farm_id, forecast_days=forecast_days, history_days=history_days
+        farm_id, forecast_days=forecast_days, history_days=history_days, user=user
     )
 
 
@@ -57,8 +63,8 @@ async def get_weather(
     ),
     responses=_NOT_FOUND,
 )
-async def get_soil(farm_id: FarmId) -> SoilProfile:
-    return await environment_service.soil_for_farm(farm_id)
+async def get_soil(farm_id: FarmId, user: Caller) -> SoilProfile:
+    return await environment_service.soil_for_farm(farm_id, user)
 
 
 @router.get(
@@ -74,6 +80,7 @@ async def get_soil(farm_id: FarmId) -> SoilProfile:
 )
 async def get_vegetation(
     farm_id: FarmId,
+    user: Caller,
     days: Annotated[int, Query(ge=7, le=365)] = 90,
 ) -> VegetationSeries:
-    return await environment_service.vegetation_for_farm(farm_id, days=days)
+    return await environment_service.vegetation_for_farm(farm_id, days=days, user=user)

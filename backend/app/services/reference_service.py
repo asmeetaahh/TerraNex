@@ -6,6 +6,7 @@ coordinates — see :func:`search_locations`.
 
 from app.db.memory import store
 from app.db.seed import seed_crops
+from app.db.session import database_enabled
 from app.providers import geocoding
 from app.schemas.common import PaginatedResponse
 from app.schemas.crop import Crop, CropList
@@ -14,8 +15,36 @@ from app.schemas.location import Location, LocationList
 
 
 def _ensure_catalog() -> None:
+    """Make sure the catalog is populated.
+
+    With a database the catalog is seeded at startup and persists, so this only has to
+    cover the in-memory path, where a fresh process starts empty.
+    """
+    if database_enabled():
+        return
     if not store.crops:
         seed_crops()
+
+
+def _catalog_from_database(category: CropCategory | None, season: Season | None) -> list[Crop]:
+    """Read the catalog from `crops`, ordered as the fixture curated it.
+
+    `sort_order` is what keeps `GET /reference/crops` returning maize and wheat before
+    alfalfa, which is what the in-memory store did for free through insertion order.
+    """
+    from sqlalchemy import select
+
+    from app.db.session import session_scope
+    from app.models import CropORM
+
+    statement = select(CropORM).order_by(CropORM.sort_order)
+    if category is not None:
+        statement = statement.where(CropORM.category == category.value)
+    if season is not None:
+        statement = statement.where(CropORM.season == season.value)
+
+    with session_scope() as db:
+        return [Crop.model_validate(row) for row in db.scalars(statement)]
 
 
 def list_crops(
@@ -27,17 +56,29 @@ def list_crops(
 ) -> CropList:
     _ensure_catalog()
 
-    crops: list[Crop] = list(store.crops.values())
-    if category is not None:
-        crops = [c for c in crops if c.category == category]
-    if season is not None:
-        crops = [c for c in crops if c.season == season]
+    if database_enabled():
+        crops = _catalog_from_database(category, season)
+    else:
+        crops = list(store.crops.values())
+        if category is not None:
+            crops = [c for c in crops if c.category == category]
+        if season is not None:
+            crops = [c for c in crops if c.season == season]
 
     return _paginate(CropList, crops, page, page_size)
 
 
 def get_crop(crop_id) -> Crop | None:
     _ensure_catalog()
+
+    if database_enabled():
+        from app.db.session import session_scope
+        from app.models import CropORM
+
+        with session_scope() as db:
+            row = db.get(CropORM, crop_id)
+            return Crop.model_validate(row) if row is not None else None
+
     return store.crops.get(crop_id)
 
 
