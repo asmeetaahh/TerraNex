@@ -159,3 +159,29 @@ export function buildAskTerraNexResponse(question: string, data: AskTerraNexData
       return respondFallback(data)
   }
 }
+
+/** The suggested-question chip categories, in the order they're offered. */
+export type SuggestedQuestionId = 'water' | 'heat' | 'cropHealth' | 'soil'
+
+/**
+ * Same response builders as {@link buildAskTerraNexResponse}, dispatched directly by
+ * chip identity rather than by matching keyword text. Suggested-question chips display
+ * translated text (see `lib/askTerraNexStrings.ts`), and the keyword matcher only
+ * understands English — routing chips through their known category keeps them working
+ * correctly in every language without needing a multilingual matcher.
+ */
+export function buildAskTerraNexResponseForCategory(
+  id: SuggestedQuestionId,
+  data: AskTerraNexData,
+): AskTerraNexResponse {
+  switch (id) {
+    case 'water':
+      return respondWater(data)
+    case 'heat':
+      return respondHeat(data)
+    case 'cropHealth':
+      return respondCropHealth(data)
+    case 'soil':
+      return respondSoilPlanting(data)
+  }
+}

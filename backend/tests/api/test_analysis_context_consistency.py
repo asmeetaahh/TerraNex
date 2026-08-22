@@ -44,9 +44,9 @@ def contexts(monkeypatch: pytest.MonkeyPatch) -> dict:
     build_run = analysis_service._build_run
     store_run = analysis_service._store_run
 
-    def spy_build_run(record, env, context, crop, stage):
+    async def spy_build_run(record, env, context, crop, stage):
         seen["scored"] = context
-        return build_run(record, env, context, crop, stage)
+        return await build_run(record, env, context, crop, stage)
 
     def spy_store_run(run, context, user):
         seen["hashed"] = context
@@ -109,8 +109,8 @@ async def test_build_run_scores_the_context_it_is_given(
     early = build_context(record, env, crop, GrowthStage.germination, planting)
     late = replace(early, growth_stage=GrowthStage.flowering.value, crop=early.crop)
 
-    early_run = analysis_service._build_run(record, env, early, crop, GrowthStage.germination)
-    late_run = analysis_service._build_run(record, env, late, crop, GrowthStage.flowering)
+    early_run = await analysis_service._build_run(record, env, early, crop, GrowthStage.germination)
+    late_run = await analysis_service._build_run(record, env, late, crop, GrowthStage.flowering)
 
     assert early.growth_stage != late.growth_stage
     assert early_run.water_risk != late_run.water_risk

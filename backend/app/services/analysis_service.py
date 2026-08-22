@@ -9,8 +9,14 @@ when the real engine lands, because only the numbers change — never the shapes
 
 Two invariants hold throughout:
 
-* every payload records `ai_mode="mock"` — no model is called anywhere in Phase 3,
-* every input is listed in `sources` with `mode="simulated"`.
+* every input is listed in `sources` with `mode="simulated"`;
+* the numbers — scores, bands, advisories, recommendations — are always this
+  module's own deterministic output. When `settings.AI_PROVIDER == "gemini"`,
+  `app.ai.gemini.generate_narrative` is asked to *narrate* `summary` from those
+  already-computed numbers (`ai_mode="gemini"`); it never recomputes them, and if
+  it is unavailable the deterministic `summary` is used as-is (`ai_mode="fallback"`).
+  With the default `settings.AI_PROVIDER == "mock"`, no model is called and every
+  payload records `ai_mode="mock"`, exactly as before.
 
 Determinism: a run's content is a pure function of the farm's coordinates, its primary
 crop and the current date. Re-running without `force_refresh` returns the *same stored
@@ -21,6 +27,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from app.ai import gemini
 from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.errors import NoAnalysisYetError
@@ -487,7 +494,68 @@ def _provenance_sentence(env: EnvironmentSnapshot) -> str:
     return "All figures are simulated, not live measurements."
 
 
-def _build_run(
+def _to_analysis_facts(
+    *,
+    record: FarmRecord,
+    crop: Crop | None,
+    overall: float,
+    weather: WeatherRisk,
+    water: WaterRisk,
+    disease: DiseaseRisk,
+    crop_health: CropHealth,
+    soil_assessment: SoilAssessment,
+    advisories: list[Advisory],
+    degraded: list[str],
+    env: EnvironmentSnapshot,
+) -> gemini.AnalysisFacts:
+    """Reduce this run's already-computed numbers to the narrow shape Gemini is
+    allowed to see. Every value here is copied, never derived further — the
+    narrative provider gets no field it could use to compute a number of its own.
+    """
+    simulated_sources = [s.source for s in env.sources if s.mode == DataMode.simulated]
+
+    return gemini.AnalysisFacts(
+        farm_name=record.name,
+        crop_name=crop.name if crop else None,
+        overall_score=int(round(overall)),
+        overall_band=_band_for(overall).value,
+        weather=gemini.RiskFact(
+            level=weather.level.value,
+            score=weather.score,
+            explanation=weather.explanation,
+            drivers=tuple(weather.drivers),
+        ),
+        water=gemini.RiskFact(
+            level=water.level.value,
+            score=water.score,
+            explanation=water.explanation,
+            drivers=tuple(water.drivers),
+        ),
+        disease=gemini.RiskFact(
+            level=disease.level.value,
+            score=disease.score,
+            explanation=disease.explanation,
+        ),
+        crop_health_score=crop_health.score,
+        crop_health_band=crop_health.band.value,
+        crop_health_explanation=crop_health.explanation,
+        soil_band=soil_assessment.band.value,
+        soil_explanation=soil_assessment.explanation,
+        advisories=tuple(
+            gemini.AdvisoryFact(
+                title=advisory.title,
+                body=advisory.body,
+                rationale=advisory.rationale,
+                priority=advisory.priority.value,
+            )
+            for advisory in advisories
+        ),
+        degraded_sources=tuple(degraded),
+        simulated_sources=tuple(simulated_sources),
+    )
+
+
+async def _build_run(
     record: FarmRecord,
     env: EnvironmentSnapshot,
     context: engine_context.AnalysisContext,
@@ -591,6 +659,34 @@ def _build_run(
         + f"{_provenance_sentence(env)}"
     )
 
+    # Gemini, when configured, only ever narrates the numbers already computed
+    # above — it cannot see the engines, and nothing it returns feeds back into
+    # `overall`, `weather`, `water`, `disease`, `crop_health`, `soil_assessment` or
+    # `advisories`. On any failure the deterministic `summary` is kept as-is.
+    ai_mode = AIMode.mock
+    ai_model: str | None = None
+    if settings.AI_PROVIDER == "gemini":
+        facts = _to_analysis_facts(
+            record=record,
+            crop=crop,
+            overall=overall,
+            weather=weather,
+            water=water,
+            disease=disease,
+            crop_health=crop_health,
+            soil_assessment=soil_assessment,
+            advisories=advisories,
+            degraded=degraded,
+            env=env,
+        )
+        narrative = await gemini.generate_narrative(facts)
+        if narrative.ok and narrative.data:
+            summary = narrative.data
+            ai_mode = AIMode.gemini
+            ai_model = settings.GEMINI_MODEL
+        else:
+            ai_mode = AIMode.fallback
+
     finished = datetime.now(UTC)
 
     # Provenance is the snapshot's provenance verbatim. The run cannot claim its
@@ -603,9 +699,9 @@ def _build_run(
         status=status,
         created_at=started,
         duration_ms=max(1, int((finished - started).total_seconds() * 1000)),
-        model=None,
+        model=ai_model,
         prompt_version=PROMPT_VERSION,
-        ai_mode=AIMode.mock,
+        ai_mode=ai_mode,
         degraded_sources=degraded,
         overall_health_score=int(round(overall)),
         overall_band=_band_for(overall),
@@ -713,7 +809,7 @@ async def run_analysis(
     The environment is gathered before the cache is consulted, which looks wasteful and
     is not: the cache key *is* the environment — every observation and its provenance —
     so there is nothing to look up until it has been fetched. What the hit saves is the
-    engine work and, once the AI layer lands, a model call.
+    engine work and, now that the narrative layer is wired in, a Gemini call.
     """
     record = require_farm(farm_id, user)
 
@@ -739,7 +835,7 @@ async def run_analysis(
         if existing is not None:
             return existing
 
-    run = _build_run(record, env, context, crop, stage)
+    run = await _build_run(record, env, context, crop, stage)
     _store_run(run, context, user)
     return run
 
