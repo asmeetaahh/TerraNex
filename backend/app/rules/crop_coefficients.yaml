@@ -1,0 +1,312 @@
+# TerraNex crop coefficients — FAO-56 Irrigation and Drainage Paper 56, Table 12 & 22.
+#
+# WHY THIS FILE EXISTS
+# The `crops` table and its published `Crop` schema carry agronomy the API exposes:
+# temperature ranges, pH window, preferred textures. They do not carry crop
+# coefficients, and they cannot — `Crop` is published in the frozen
+# `contracts/openapi.json`, so adding `kc_by_stage` to it would change the contract.
+# These parameters therefore live here, versioned as data, hashed into every analysis
+# run through RULESET_VERSION.
+#
+# WHY THREE COEFFICIENTS AND NOT EIGHT
+# FAO-56 does not define a coefficient per phenological stage. It defines three —
+# initial, mid-season and late-season — and a set of stage *lengths* to interpolate
+# between them. TerraNex records a growth stage rather than days-after-planting, so
+# `stage_curve` below maps each stage onto that same curve. Keeping the source's three
+# numbers means these values can be checked against the paper directly, and the shape
+# of the curve is adjustable in exactly one place.
+#
+# GLOBAL BY CONSTRUCTION
+# Nothing here is keyed on country, region or coordinate. FAO-56 coefficients are
+# climate-adjusted at *use* time from humidity and wind — which the engine reads from
+# provider data — not baked in per location. A crop grown in Ribeirão Preto and one
+# grown in Krasnodar resolve to the same coefficients and diverge through their weather.
+
+version: 1
+
+# --------------------------------------------------------------------------
+# Stage curve
+#
+# `basis` selects which FAO-56 coefficient a stage sits on:
+#   none        no crop in the ground; Kc is zero
+#   ini         the initial coefficient
+#   ini_to_mid  linear interpolation, `fraction` of the way from ini to mid
+#   mid         the mid-season coefficient (peak demand)
+#   mid_to_end  linear interpolation, `fraction` of the way from mid to end
+#   end         the late-season coefficient
+# --------------------------------------------------------------------------
+stage_curve:
+  not_planted:
+    basis: none
+  germination:
+    basis: ini
+  seedling:
+    basis: ini_to_mid
+    fraction: 0.25
+  vegetative:
+    basis: ini_to_mid
+    fraction: 0.70
+  flowering:
+    basis: mid
+  fruiting:
+    basis: mid
+  maturity:
+    basis: mid_to_end
+    fraction: 0.60
+  harvested:
+    basis: end
+
+# --------------------------------------------------------------------------
+# Fallbacks
+#
+# A crop with no entry resolves to its category, and a category with no entry to the
+# global default. Which one was used is recorded on the context as
+# `parameters_source`, so a run can state that it used a category default rather than
+# implying it had the crop's own coefficients.
+# --------------------------------------------------------------------------
+defaults:
+  global:
+    kc_ini: 0.40
+    kc_mid: 1.05
+    kc_end: 0.55
+    root_depth_m: 1.00
+    depletion_fraction: 0.50
+
+  by_category:
+    cereal:
+      kc_ini: 0.30
+      kc_mid: 1.15
+      kc_end: 0.35
+      root_depth_m: 1.20
+      depletion_fraction: 0.55
+    legume:
+      kc_ini: 0.40
+      kc_mid: 1.10
+      kc_end: 0.45
+      root_depth_m: 0.80
+      depletion_fraction: 0.50
+    oilseed:
+      kc_ini: 0.35
+      kc_mid: 1.10
+      kc_end: 0.35
+      root_depth_m: 1.20
+      depletion_fraction: 0.55
+    tuber:
+      kc_ini: 0.45
+      kc_mid: 1.10
+      kc_end: 0.60
+      root_depth_m: 0.60
+      depletion_fraction: 0.40
+    vegetable:
+      kc_ini: 0.65
+      kc_mid: 1.05
+      kc_end: 0.80
+      root_depth_m: 0.50
+      depletion_fraction: 0.40
+    fruit:
+      kc_ini: 0.55
+      kc_mid: 1.05
+      kc_end: 0.90
+      root_depth_m: 1.00
+      depletion_fraction: 0.40
+    fibre:
+      kc_ini: 0.35
+      kc_mid: 1.15
+      kc_end: 0.60
+      root_depth_m: 1.20
+      depletion_fraction: 0.60
+    forage:
+      kc_ini: 0.40
+      kc_mid: 0.95
+      kc_end: 0.90
+      root_depth_m: 1.20
+      depletion_fraction: 0.55
+
+# --------------------------------------------------------------------------
+# Per-crop coefficients
+#
+# Root depths are the mid-range of the FAO-56 interval rather than the maximum: a
+# smallholder plot rarely achieves the deep profile of a research station, and
+# overstating Zr overstates the reservoir the crop can draw on, which understates
+# water risk. Erring shallow is the safer direction for an advisory.
+# --------------------------------------------------------------------------
+crops:
+  # ---- cereals ----
+  maize:
+    kc_ini: 0.30
+    kc_mid: 1.20
+    kc_end: 0.35
+    root_depth_m: 1.30
+    depletion_fraction: 0.55
+  wheat:
+    kc_ini: 0.30
+    kc_mid: 1.15
+    kc_end: 0.30
+    root_depth_m: 1.50
+    depletion_fraction: 0.55
+  rice:
+    # Paddy rice is ponded, not depleted: it stays near saturation by design, which is
+    # why p is far lower than any other crop here.
+    kc_ini: 1.05
+    kc_mid: 1.20
+    kc_end: 0.75
+    root_depth_m: 0.75
+    depletion_fraction: 0.20
+  sorghum:
+    kc_ini: 0.30
+    kc_mid: 1.05
+    kc_end: 0.55
+    root_depth_m: 1.50
+    depletion_fraction: 0.55
+  pearl_millet:
+    kc_ini: 0.30
+    kc_mid: 1.00
+    kc_end: 0.30
+    root_depth_m: 1.50
+    depletion_fraction: 0.55
+  barley:
+    kc_ini: 0.30
+    kc_mid: 1.15
+    kc_end: 0.25
+    root_depth_m: 1.25
+    depletion_fraction: 0.55
+
+  # ---- legumes ----
+  soybean:
+    kc_ini: 0.40
+    kc_mid: 1.15
+    kc_end: 0.50
+    root_depth_m: 0.95
+    depletion_fraction: 0.50
+  common_bean:
+    kc_ini: 0.40
+    kc_mid: 1.15
+    kc_end: 0.35
+    root_depth_m: 0.75
+    depletion_fraction: 0.45
+  cowpea:
+    kc_ini: 0.40
+    kc_mid: 1.05
+    kc_end: 0.60
+    root_depth_m: 0.80
+    depletion_fraction: 0.45
+  chickpea:
+    kc_ini: 0.40
+    kc_mid: 1.00
+    kc_end: 0.35
+    root_depth_m: 0.80
+    depletion_fraction: 0.50
+  groundnut:
+    kc_ini: 0.40
+    kc_mid: 1.15
+    kc_end: 0.60
+    root_depth_m: 0.75
+    depletion_fraction: 0.50
+  lentil:
+    kc_ini: 0.40
+    kc_mid: 1.10
+    kc_end: 0.30
+    root_depth_m: 0.70
+    depletion_fraction: 0.50
+  pigeonpea:
+    # Not tabulated in FAO-56; taken from the deep-rooted pulse group.
+    kc_ini: 0.40
+    kc_mid: 1.05
+    kc_end: 0.50
+    root_depth_m: 1.15
+    depletion_fraction: 0.50
+
+  # ---- oilseeds ----
+  sunflower:
+    kc_ini: 0.35
+    kc_mid: 1.05
+    kc_end: 0.35
+    root_depth_m: 1.15
+    depletion_fraction: 0.45
+  rapeseed:
+    kc_ini: 0.35
+    kc_mid: 1.10
+    kc_end: 0.35
+    root_depth_m: 1.25
+    depletion_fraction: 0.60
+  sesame:
+    kc_ini: 0.35
+    kc_mid: 1.10
+    kc_end: 0.25
+    root_depth_m: 1.25
+    depletion_fraction: 0.60
+
+  # ---- tubers ----
+  potato:
+    kc_ini: 0.50
+    kc_mid: 1.15
+    kc_end: 0.75
+    root_depth_m: 0.50
+    depletion_fraction: 0.35
+  sweet_potato:
+    kc_ini: 0.50
+    kc_mid: 1.15
+    kc_end: 0.65
+    root_depth_m: 1.25
+    depletion_fraction: 0.65
+  cassava:
+    # First-year values; a ratooned second year runs higher through mid-season.
+    kc_ini: 0.30
+    kc_mid: 0.80
+    kc_end: 0.30
+    root_depth_m: 0.65
+    depletion_fraction: 0.35
+
+  # ---- vegetables ----
+  tomato:
+    kc_ini: 0.60
+    kc_mid: 1.15
+    kc_end: 0.80
+    root_depth_m: 1.00
+    depletion_fraction: 0.40
+  onion:
+    kc_ini: 0.70
+    kc_mid: 1.05
+    kc_end: 0.75
+    root_depth_m: 0.45
+    depletion_fraction: 0.30
+  cabbage:
+    kc_ini: 0.70
+    kc_mid: 1.05
+    kc_end: 0.95
+    root_depth_m: 0.65
+    depletion_fraction: 0.45
+
+  # ---- fruit / perennial ----
+  banana:
+    # First-year plant crop.
+    kc_ini: 0.50
+    kc_mid: 1.10
+    kc_end: 1.00
+    root_depth_m: 0.70
+    depletion_fraction: 0.35
+  coffee:
+    # Bare-ground management. Under a cover crop, mid-season runs nearer 1.10.
+    kc_ini: 0.90
+    kc_mid: 0.95
+    kc_end: 0.95
+    root_depth_m: 1.20
+    depletion_fraction: 0.40
+
+  # ---- fibre ----
+  cotton:
+    kc_ini: 0.35
+    kc_mid: 1.15
+    kc_end: 0.60
+    root_depth_m: 1.35
+    depletion_fraction: 0.65
+
+  # ---- forage ----
+  alfalfa:
+    # Averaged over cutting cycles rather than the individual-cutting curve; TerraNex
+    # tracks a single growth stage, not a cut schedule.
+    kc_ini: 0.40
+    kc_mid: 0.95
+    kc_end: 0.90
+    root_depth_m: 1.50
+    depletion_fraction: 0.55

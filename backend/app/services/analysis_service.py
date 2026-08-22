@@ -18,12 +18,24 @@ run*; with `force_refresh` a new run id is minted whose scores are identical.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from app.core.deps import CurrentUser
 from app.core.errors import NoAnalysisYetError
-from app.db.memory import FarmRecord, store
+from app.db.memory import FarmCropRecord, FarmRecord, store
+from app.engine import composite as engine_composite
+from app.engine import disease as engine_disease
+from app.engine import soil as engine_soil
+from app.engine import vegetation as engine_vegetation
+from app.engine import water as engine_water
+from app.engine import weather as engine_weather
+from app.engine.composite import AdvisoryDraft
+from app.engine.disease import DiseaseAssessment
+from app.engine.soil import SoilAssessmentResult
+from app.engine.vegetation import VegetationAssessment
+from app.engine.water import WaterAssessment
+from app.engine.weather import WeatherAssessment
 from app.providers.base import DailyObservation
 from app.schemas.advisory import Advisory, AdvisoryList
 from app.schemas.analysis import (
@@ -51,6 +63,7 @@ from app.schemas.risk import DiseaseRisk, DiseaseRiskItem, WaterRisk, WeatherRis
 from app.schemas.soil import SoilAssessment
 from app.schemas.vegetation import CropHealth
 from app.services import environment_service
+from app.services.analysis_context import build_context
 from app.services.environment_service import EnvironmentSnapshot
 from app.services.farm_service import (
     _to_farm,
@@ -60,7 +73,6 @@ from app.services.farm_service import (
     require_farm,
 )
 from app.services.reference_service import _ensure_catalog, paginate
-from app.services.simulation import seeded_rng
 
 PROMPT_VERSION = "phase3-fixture-v1"
 
@@ -345,170 +357,95 @@ def _unknown_factor(key: str, label: str, missing: Sequence[str]) -> ScoredFacto
 # --------------------------------------------------------------------------
 
 
-def _weather_risk(env: EnvironmentSnapshot, crop: Crop | None) -> WeatherRisk:
-    window = 7
-    forecast = env.forecast(window)
+def _weather_risk(
+    env: EnvironmentSnapshot,
+    record: FarmRecord,
+    crop: Crop | None,
+    stage: GrowthStage,
+    planting: FarmCropRecord | None = None,
+) -> WeatherRisk:
+    """Near-term weather exposure, delegated to the deterministic engine.
 
-    hot_threshold = crop.optimal_temp_max_c if crop and crop.optimal_temp_max_c else 32.0
-    cold_threshold = 2.0
+    Thresholds now come from the crop rather than from constants, and growing degree
+    days are accumulated from its base temperature. The published shape is unchanged —
+    `WeatherRisk` has no field for thermal time, so it reaches the response through the
+    drivers rather than by growing the contract.
+    """
+    context = build_context(record, env, crop, stage, planting)
+    return _to_weather_risk(engine_weather.evaluate(context))
 
-    # Each count only considers days that actually reported the field.
-    heat_days = _count_where(forecast, "temp_max_c", lambda v: v > hot_threshold)
-    frost_days = _count_where(forecast, "temp_min_c", lambda v: v < cold_threshold)
-    heavy_rain_days = _count_where(forecast, "precipitation_mm", lambda v: v > 25)
-    windy_days = _count_where(forecast, "wind_kmh", lambda v: v > 40)
 
-    # A day with no rainfall reading breaks the run rather than extending it: an
-    # unmeasured day is not evidence of dryness.
-    dry_run = longest_dry = 0
-    for d in forecast:
-        rain = _reading(d, "precipitation_mm")
-        if rain is None:
-            dry_run = 0
-        elif rain <= 0.2:
-            dry_run += 1
-            longest_dry = max(longest_dry, dry_run)
-        else:
-            dry_run = 0
-
-    missing = _unavailable(forecast, "temp_max_c", "temp_min_c", "precipitation_mm", "wind_kmh")
-
-    score = _clamp(
-        heat_days * 9 + frost_days * 14 + heavy_rain_days * 8 + windy_days * 6 + longest_dry * 3,
-        0,
-        100,
-    )
-
-    drivers: list[str] = []
-    if heat_days:
-        drivers.append(f"{heat_days} forecast day(s) above {hot_threshold:.0f} °C")
-    if frost_days:
-        drivers.append(f"{frost_days} forecast day(s) below {cold_threshold:.0f} °C")
-    if heavy_rain_days:
-        drivers.append(f"{heavy_rain_days} day(s) with more than 25 mm of rain")
-    if windy_days:
-        drivers.append(f"{windy_days} day(s) with winds above 40 km/h")
-    if longest_dry >= 5:
-        drivers.append(f"A {longest_dry}-day dry spell in the forecast window")
-    if missing:
-        # Stated before any all-clear, so a partial window is never read as calm.
-        drivers.append(
-            f"{INSUFFICIENT}: {', '.join(missing)} unavailable — the corresponding "
-            "exposure was not assessed"
-        )
-    if not forecast:
-        drivers.append(f"{INSUFFICIENT}: no daily forecast was available")
-    elif not drivers:
-        drivers.append("No threshold exceedances in the forecast window")
-
-    factors: list[ScoredFactor] = []
-    if _has(forecast, "temp_max_c"):
-        heat_score = _clamp(100 - heat_days * 18, 0, 100)
-        factors.append(
-            ScoredFactor(
-                key="heat_stress",
-                label="Heat stress",
-                score=heat_score,
-                weight=0.4,
-                band=_band_for(heat_score),
-                explanation=(
-                    f"{heat_days} of {len(forecast)} forecast days exceed the crop's "
-                    "optimal maximum."
-                ),
-            )
-        )
-    else:
-        factors.append(_unknown_factor("heat_stress", "Heat stress", ["maximum temperature"]))
-
-    if _has(forecast, "precipitation_mm"):
-        rain_score = _clamp(100 - heavy_rain_days * 22, 0, 100)
-        factors.append(
-            ScoredFactor(
-                key="rainfall_extremes",
-                label="Rainfall extremes",
-                score=rain_score,
-                weight=0.3,
-                band=_band_for(rain_score),
-                explanation=f"{heavy_rain_days} day(s) exceed 25 mm of rainfall.",
-            )
-        )
-        dry_score = _clamp(100 - longest_dry * 12, 0, 100)
-        factors.append(
-            ScoredFactor(
-                key="dry_spell",
-                label="Dry spell",
-                score=dry_score,
-                weight=0.3,
-                band=_band_for(dry_score),
-                explanation=f"Longest run without measurable rain is {longest_dry} day(s).",
-            )
-        )
-    else:
-        factors.append(_unknown_factor("rainfall_extremes", "Rainfall extremes", ["precipitation"]))
-        factors.append(_unknown_factor("dry_spell", "Dry spell", ["precipitation"]))
-
-    if not forecast:
-        explanation = (
-            f"{INSUFFICIENT}: no daily forecast was available, so weather risk could "
-            "not be assessed."
-        )
-    elif missing:
-        explanation = (
-            f"Weather risk over the next {window} days is {_risk_level_for(score).value} "
-            f"for the inputs that were available. " + "; ".join(drivers) + "."
-        )
-    else:
-        explanation = (
-            f"Conditions over the next {window} days place weather risk at "
-            f"{_risk_level_for(score).value}. " + "; ".join(drivers) + "."
-        )
-
+def _to_weather_risk(assessment: WeatherAssessment) -> WeatherRisk:
+    """Map the engine's result onto the published schema."""
     return WeatherRisk(
-        level=_risk_level_for(score),
-        score=int(round(score)),
-        forecast_window_days=window,
-        heat_stress_days=heat_days,
-        frost_risk_days=frost_days,
-        heavy_rain_days=heavy_rain_days,
-        high_wind_days=windy_days,
-        longest_dry_spell_days=longest_dry,
+        level=assessment.level,
+        score=int(round(assessment.score)),
+        forecast_window_days=assessment.forecast_window_days,
+        heat_stress_days=assessment.heat_stress_days,
+        frost_risk_days=assessment.frost_risk_days,
+        heavy_rain_days=assessment.heavy_rain_days,
+        high_wind_days=assessment.high_wind_days,
+        longest_dry_spell_days=assessment.longest_dry_spell_days,
         # Nullable in the contract: null is how "not measured" is expressed, and it
         # is what distinguishes "no hot days" from "no temperature data".
-        max_temp_c=_max_of(forecast, "temp_max_c"),
-        min_temp_c=_min_of(forecast, "temp_min_c"),
-        total_precipitation_mm=(
-            round(total, 1)
-            if (total := _sum_of(forecast, "precipitation_mm")) is not None
-            else None
-        ),
-        drivers=drivers,
-        factors=factors,
-        explanation=explanation,
+        max_temp_c=assessment.max_temp_c,
+        min_temp_c=assessment.min_temp_c,
+        total_precipitation_mm=_round_or_none(assessment.total_precipitation_mm),
+        drivers=list(assessment.drivers),
+        factors=list(assessment.factors),
+        explanation=assessment.explanation,
     )
 
 
 def _water_risk(
     env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None, stage: GrowthStage
 ) -> WaterRisk:
-    lookback, lookahead = 30, 7
-    history = env.history(lookback)
-    forecast = env.forecast(lookahead)
-    window = history + forecast
+    """Soil water balance, delegated to the deterministic engine.
 
-    kc = _KC_BY_STAGE.get(stage, 0.85)
-    soil = env.soil
-    capacity = soil.water_holding_capacity_mm or 50.0
-    relief = _IRRIGATION_RELIEF.get(str(record.irrigation_type), 0.0)
+    This function no longer computes anything. It builds a pure context, runs the
+    FAO-56 daily balance in `app.engine.water`, and maps the result onto the frozen
+    `WaterRisk` schema. The arithmetic lives in the engine so it can be unit-tested
+    without a provider and recomputed from a stored run.
+    """
+    return _to_water_risk(_water_assessment(env, record, crop, stage), record)
 
-    precipitation = _sum_of(window, "precipitation_mm")
-    et0_total = _sum_of(window, "et0_mm")
-    missing = _unavailable(window, "precipitation_mm", "et0_mm")
 
-    # The balance is a difference of two sums; without either side there is no
-    # balance to report. Reporting one as zero would invent a drought or a surplus.
-    if precipitation is None or et0_total is None:
+def _water_assessment(
+    env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None, stage: GrowthStage
+) -> WaterAssessment:
+    """The engine's own result, before it is narrowed to the published schema.
+
+    `_build_run` needs this rather than the mapped `WaterRisk`, because the engine
+    records things the contract has no field for — chiefly how many days had their
+    evapotranspiration estimated rather than measured, which decides whether the run
+    reports degraded provenance.
+    """
+    return engine_water.evaluate(build_context(record, env, crop, stage))
+
+
+def _irrigation_note(record: FarmRecord, efficiency: float | None) -> str:
+    if efficiency is None:
+        return "Farm is rainfed; there is no irrigation buffer against a shortfall."
+    return (
+        f"Farm uses {record.irrigation_type} irrigation, which delivers about "
+        f"{efficiency * 100:.0f}% of what is applied."
+    )
+
+
+def _to_water_risk(assessment: WaterAssessment, record: FarmRecord) -> WaterRisk:
+    """Map the engine's result onto the published schema.
+
+    The insufficient branch reports nulls where the contract allows them rather than
+    substituting values. `water_holding_capacity_mm` in particular stays null: the
+    behaviour this replaced defaulted it to 50 mm, and that invented reservoir drove a
+    real irrigation recommendation for a farm whose soil was never measured.
+    """
+    efficiency = assessment.application_efficiency
+    note = _irrigation_note(record, efficiency)
+
+    if not assessment.sufficient:
         return WaterRisk(
-            level=RiskLevel.low,
+            level=assessment.level,
             score=0,
             # Required by the contract and not nullable; the explanation, drivers and
             # the run's partial status carry the fact that nothing was computed.
@@ -516,455 +453,157 @@ def _water_risk(
             deficit_mm=0.0,
             recommended_irrigation_mm=0.0,
             # Nullable measurements stay null rather than reporting a false zero.
-            total_precipitation_mm=None if precipitation is None else round(precipitation, 1),
+            total_precipitation_mm=None,
             total_crop_water_demand_mm=None,
             soil_moisture_pct=None,
-            water_holding_capacity_mm=capacity,
+            water_holding_capacity_mm=assessment.taw_mm,
             days_until_stress=None,
             irrigation_window=None,
-            irrigation_efficiency_note=(
-                f"Farm uses {record.irrigation_type} irrigation."
-                if relief
-                else "Farm is rainfed; there is no irrigation buffer against a shortfall."
-            ),
-            drivers=[
-                f"{INSUFFICIENT}: {', '.join(missing or ['weather data'])} unavailable, "
-                "so the soil water balance was not calculated"
-            ],
+            irrigation_efficiency_note=note,
+            drivers=list(assessment.drivers),
             factors=[
-                _unknown_factor("water_balance", "Water balance", missing or ["weather data"]),
+                *assessment.factors,
                 ScoredFactor(
                     key="irrigation_capacity",
                     label="Irrigation capacity",
-                    score=_clamp(relief * 100, 0, 100),
+                    score=_clamp((efficiency or 0.0) * 100, 0, 100),
                     weight=0.4,
-                    band=_band_for(_clamp(relief * 100, 0, 100)),
-                    explanation=f"{record.irrigation_type} irrigation.",
+                    band=_band_for(_clamp((efficiency or 0.0) * 100, 0, 100)),
+                    explanation=note,
                 ),
             ],
-            explanation=(
-                f"{INSUFFICIENT}: {', '.join(missing or ['weather data'])} unavailable from "
-                "the weather provider, so water risk could not be assessed."
-            ),
+            explanation=assessment.explanation,
         )
 
-    demand = et0_total * kc
-    balance = precipitation - demand
-    deficit = max(0.0, -balance)
-    effective_deficit = deficit * (1 - relief)
-
-    score = _clamp(effective_deficit / max(capacity, 1) * 100, 0, 100)
-
-    daily_demand = max(0.1, demand / max(len(window), 1))
-    days_until_stress = (
-        int(max(0, (capacity - effective_deficit) / daily_demand))
-        if effective_deficit > 0
-        else None
-    )
-    if days_until_stress is not None:
-        days_until_stress = min(days_until_stress, 60)
-
-    soil_moisture = _clamp(100 * (1 - effective_deficit / max(capacity, 1)), 0, 100)
-
-    drivers = [
-        f"{precipitation:.0f} mm rainfall against {demand:.0f} mm crop demand over "
-        f"{lookback} days of history and {lookahead} days of forecast",
-        f"Soil holds about {capacity:.0f} mm of plant-available water",
-    ]
-    if relief:
-        drivers.append(
-            f"{record.irrigation_type} irrigation offsets roughly "
-            f"{relief * 100:.0f}% of the shortfall"
-        )
-
+    score = assessment.score
     return WaterRisk(
-        level=_risk_level_for(score),
+        level=assessment.level,
         score=int(round(score)),
-        water_balance_mm=round(balance, 1),
-        deficit_mm=round(deficit, 1),
-        total_precipitation_mm=round(precipitation, 1),
-        total_crop_water_demand_mm=round(demand, 1),
-        soil_moisture_pct=round(soil_moisture, 1),
-        water_holding_capacity_mm=capacity,
-        days_until_stress=days_until_stress,
-        recommended_irrigation_mm=round(effective_deficit if effective_deficit > 5 else 0.0, 1),
+        water_balance_mm=round(assessment.water_balance_mm, 1),
+        deficit_mm=round(assessment.deficit_mm, 1),
+        total_precipitation_mm=_round_or_none(assessment.total_precipitation_mm),
+        total_crop_water_demand_mm=_round_or_none(assessment.total_crop_demand_mm),
+        soil_moisture_pct=_round_or_none(assessment.soil_moisture_pct),
+        water_holding_capacity_mm=_round_or_none(assessment.taw_mm),
+        days_until_stress=assessment.days_until_stress,
+        recommended_irrigation_mm=round(assessment.applied_irrigation_mm, 1),
         irrigation_window=(
             "within 48 hours" if score >= 50 else "within the next week" if score >= 28 else None
         ),
-        irrigation_efficiency_note=(
-            f"Farm uses {record.irrigation_type} irrigation."
-            if relief
-            else "Farm is rainfed; there is no irrigation buffer against a shortfall."
-        ),
-        drivers=drivers,
-        factors=[
-            ScoredFactor(
-                key="water_balance",
-                label="Water balance",
-                score=_clamp(100 - score, 0, 100),
-                weight=0.6,
-                band=_band_for(_clamp(100 - score, 0, 100)),
-                explanation=f"Balance of {balance:.0f} mm against a {capacity:.0f} mm reservoir.",
-            ),
-            ScoredFactor(
-                key="irrigation_capacity",
-                label="Irrigation capacity",
-                score=_clamp(relief * 100, 0, 100),
-                weight=0.4,
-                band=_band_for(_clamp(relief * 100, 0, 100)),
-                explanation=f"{record.irrigation_type} irrigation.",
-            ),
-        ],
-        explanation=(
-            f"Water balance is {balance:.0f} mm "
-            f"({'deficit' if balance < 0 else 'surplus'}), placing water risk at "
-            f"{_risk_level_for(score).value}."
-        ),
+        irrigation_efficiency_note=note,
+        drivers=list(assessment.drivers),
+        factors=list(assessment.factors),
+        explanation=assessment.explanation,
     )
 
 
-def _disease_risk(env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None) -> DiseaseRisk:
-    today = env.today
-    window = env.forecast(7)
+def _round_or_none(value: float | None, places: int = 1) -> float | None:
+    return None if value is None else round(value, places)
 
-    humid_days = _count_where(window, "humidity_pct", lambda v: v >= 80)
 
-    # Compound conditions need both readings on the same day; a day missing either
-    # is unknown, not a non-match, so it is skipped rather than counted as safe.
-    def _both(d: DailyObservation, a: str, b: str) -> tuple[float, float] | None:
-        first, second = _reading(d, a), _reading(d, b)
-        return None if first is None or second is None else (first, second)
+def _disease_risk(
+    env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None, stage: GrowthStage
+) -> DiseaseRisk:
+    """Disease pressure, delegated to the deterministic engine.
 
-    mild_wet_days = sum(
-        1
-        for d in window
-        if (pair := _both(d, "temp_mean_c", "humidity_pct")) is not None
-        and 15 <= pair[0] <= 27
-        and pair[1] >= 75
-    )
-    warm_wet_days = sum(
-        1
-        for d in window
-        if (pair := _both(d, "temp_mean_c", "precipitation_mm")) is not None
-        and pair[0] > 24
-        and pair[1] > 2
-    )
+    Rules are matched against the hourly series rather than daily means, and a pathogen
+    is named only when a rule for the planted crop met its duration requirement. The
+    published shape is unchanged.
+    """
+    context = build_context(record, env, crop, stage)
+    return _to_disease_risk(engine_disease.evaluate(context))
 
-    missing = _unavailable(window, "humidity_pct", "temp_mean_c")
 
-    score = _clamp(humid_days * 7 + mild_wet_days * 9 + warm_wet_days * 6, 0, 100)
-    level = _risk_level_for(score)
-
-    disease_names = (
-        crop.common_diseases if crop and crop.common_diseases else ["fungal_leaf_spot"]
-    )[:3]
-    rng = seeded_rng("disease", record.id, today.isoformat())
-
-    items: list[DiseaseRiskItem] = []
-    for index, name in enumerate(disease_names):
-        item_score = _clamp(score - index * 12 + rng.uniform(-5, 5), 0, 100)
-        conditions = []
-        if mild_wet_days:
-            conditions.append(f"{mild_wet_days} day(s) at 15-27 °C with humidity at or above 75%")
-        if humid_days:
-            conditions.append(f"{humid_days} day(s) with humidity at or above 80%")
-        if warm_wet_days:
-            conditions.append(f"{warm_wet_days} warm day(s) with measurable rain")
-        if not conditions:
-            conditions.append("No sustained humidity or leaf-wetness window in the forecast")
-
-        items.append(
-            DiseaseRiskItem(
-                name=name.replace("_", " ").capitalize(),
-                pathogen=None,
-                crop_code=crop.code if crop else None,
-                level=_risk_level_for(item_score),
-                probability=round(item_score / 100, 2),
-                triggering_conditions=conditions,
-                preventive_actions=[
-                    "Scout the lower canopy twice this week",
-                    "Improve airflow by managing canopy density",
-                    "Avoid overhead irrigation late in the day",
-                ],
-                scouting_advice="Inspect 10 plants at 5 points across the field.",
-            )
-        )
-
+def _to_disease_risk(assessment: DiseaseAssessment) -> DiseaseRisk:
+    """Map the engine's result onto the published schema."""
     return DiseaseRisk(
-        level=level,
-        score=int(round(score)),
-        conditions_summary=(
-            (
-                f"{INSUFFICIENT}: {', '.join(missing)} unavailable, so infection "
-                "conditions could not be evaluated."
+        level=assessment.level,
+        score=int(round(assessment.score)),
+        conditions_summary=assessment.conditions_summary,
+        risks=[
+            DiseaseRiskItem(
+                name=item.name,
+                pathogen=item.pathogen,
+                crop_code=item.crop_code,
+                level=item.level,
+                probability=round(item.probability, 2),
+                triggering_conditions=list(item.triggering_conditions),
+                preventive_actions=list(item.preventive_actions),
+                scouting_advice=item.scouting_advice,
             )
-            if missing
-            else (
-                f"{humid_days} of {len(window)} forecast days reach 80% humidity, with "
-                f"{mild_wet_days} in the 15-27 °C infection window."
-            )
-        ),
-        risks=sorted(items, key=lambda i: i.probability, reverse=True),
-        factors=[
-            (
-                ScoredFactor(
-                    key="humidity_hours",
-                    label="Humidity exposure",
-                    score=_clamp(100 - humid_days * 14, 0, 100),
-                    weight=0.5,
-                    band=_band_for(_clamp(100 - humid_days * 14, 0, 100)),
-                    explanation=f"{humid_days} day(s) at or above 80% relative humidity.",
-                )
-                if _has(window, "humidity_pct")
-                else _unknown_factor("humidity_hours", "Humidity exposure", ["humidity"])
-            ),
-            (
-                ScoredFactor(
-                    key="infection_window",
-                    label="Infection temperature window",
-                    score=_clamp(100 - mild_wet_days * 16, 0, 100),
-                    weight=0.5,
-                    band=_band_for(_clamp(100 - mild_wet_days * 16, 0, 100)),
-                    explanation=f"{mild_wet_days} day(s) inside the 15-27 °C infection window.",
-                )
-                if _has(window, "humidity_pct") and _has(window, "temp_mean_c")
-                else _unknown_factor(
-                    "infection_window",
-                    "Infection temperature window",
-                    missing or ["humidity", "mean temperature"],
-                )
-            ),
+            for item in assessment.items
         ],
-        explanation=(
-            (
-                f"{INSUFFICIENT}: {', '.join(missing)} unavailable from the weather "
-                "provider, so disease pressure could not be assessed."
-            )
-            if missing
-            else (
-                f"Humidity and temperature patterns place disease pressure at "
-                f"{level.value} for the coming week."
-            )
-        ),
+        factors=list(assessment.factors),
+        explanation=assessment.explanation,
     )
 
 
-def _soil_assessment(env: EnvironmentSnapshot, crop: Crop | None) -> SoilAssessment:
-    soil = env.soil
+def _soil_assessment(
+    env: EnvironmentSnapshot, record: FarmRecord, crop: Crop | None
+) -> SoilAssessment:
+    """Soil suitability, delegated to the deterministic engine.
 
-    ph_min = crop.ph_min if crop and crop.ph_min else 5.5
-    ph_max = crop.ph_max if crop and crop.ph_max else 7.5
+    Scoring now tolerates a partial profile: a real survey answers for the properties it
+    sampled, and the engine reports the rest as unassessed rather than reading a value
+    that is not there.
+    """
+    context = build_context(record, env, crop, GrowthStage.not_planted)
+    return _to_soil_assessment(engine_soil.evaluate(context), env)
 
-    if ph_min <= soil.ph <= ph_max:
-        ph_score, ph_status = 92.0, "optimal"
-    else:
-        distance = min(abs(soil.ph - ph_min), abs(soil.ph - ph_max))
-        ph_score = _clamp(92 - distance * 32, 5, 92)
-        ph_status = "too_acidic" if soil.ph < ph_min else "too_alkaline"
 
-    soc_score = _clamp(soil.organic_carbon_pct / 3.0 * 100, 5, 100)
-    organic_status = (
-        "low"
-        if soil.organic_carbon_pct < 1.0
-        else "adequate"
-        if soil.organic_carbon_pct < 2.5
-        else "high"
-    )
+def _to_soil_assessment(result: SoilAssessmentResult, env: EnvironmentSnapshot) -> SoilAssessment:
+    """Map the engine's result onto the published schema.
 
-    preferred = set(crop.preferred_textures) if crop and crop.preferred_textures else set()
-    texture_score = 90.0 if not preferred else (90.0 if soil.texture_class in preferred else 55.0)
-
-    cec_score = _clamp(soil.cec_cmol_kg / 25 * 100, 5, 100)
-    fertility_status = (
-        "low" if soil.cec_cmol_kg < 10 else "moderate" if soil.cec_cmol_kg < 20 else "high"
-    )
-
-    composite = ph_score * 0.35 + soc_score * 0.25 + texture_score * 0.25 + cec_score * 0.15
-
-    limitations: list[str] = []
-    if ph_status != "optimal":
-        limitations.append(
-            f"pH {soil.ph} is outside the {ph_min}-{ph_max} range preferred by "
-            f"{crop.name if crop else 'most crops'}"
-        )
-    if soil.organic_carbon_pct < 1.0:
-        limitations.append(f"Organic carbon is low at {soil.organic_carbon_pct}%")
-    if preferred and soil.texture_class not in preferred:
-        limitations.append(f"{soil.texture_class.value} texture is not preferred by this crop")
-    if soil.cec_cmol_kg < 10:
-        limitations.append(f"Low cation exchange capacity ({soil.cec_cmol_kg} cmol/kg)")
-
+    The explanation names the provenance rather than asserting the soil is simulated:
+    the same code path now serves a SoilGrids prediction and a local simulation, and
+    only `meta.mode` knows which.
+    """
+    texture = env.soil.texture_class
     return SoilAssessment(
-        score=int(round(composite)),
-        band=_band_for(composite),
-        texture_class=soil.texture_class,
-        ph_status=ph_status,
-        organic_matter_status=organic_status,
-        fertility_status=fertility_status,
-        limitations=limitations,
-        factors=[
-            ScoredFactor(
-                key="soil_ph",
-                label="Soil pH",
-                score=round(ph_score, 1),
-                weight=0.35,
-                band=_band_for(ph_score),
-                explanation=f"pH {soil.ph} against a preferred {ph_min}-{ph_max}.",
-            ),
-            ScoredFactor(
-                key="organic_carbon",
-                label="Organic carbon",
-                score=round(soc_score, 1),
-                weight=0.25,
-                band=_band_for(soc_score),
-                explanation=f"Organic carbon at {soil.organic_carbon_pct}%.",
-            ),
-            ScoredFactor(
-                key="texture",
-                label="Texture match",
-                score=round(texture_score, 1),
-                weight=0.25,
-                band=_band_for(texture_score),
-                explanation=f"{soil.texture_class.value} texture.",
-            ),
-            ScoredFactor(
-                key="cec",
-                label="Nutrient holding",
-                score=round(cec_score, 1),
-                weight=0.15,
-                band=_band_for(cec_score),
-                explanation=f"CEC of {soil.cec_cmol_kg} cmol/kg.",
-            ),
-        ],
-        explanation=(
-            f"Simulated soil is {soil.texture_class.value} at pH {soil.ph} with "
-            f"{soil.organic_carbon_pct}% organic carbon, scoring "
-            f"{_band_for(composite).value} for this farm."
-        ),
+        score=int(round(result.score)),
+        band=result.band,
+        texture_class=texture,
+        ph_status=result.ph_status,
+        organic_matter_status=result.organic_matter_status,
+        fertility_status=result.fertility_status,
+        limitations=list(result.limitations),
+        factors=list(result.factors),
+        explanation=result.explanation,
     )
 
 
 def _crop_health(
-    env: EnvironmentSnapshot, crop: Crop | None, planting, stage: GrowthStage
+    env: EnvironmentSnapshot,
+    record: FarmRecord,
+    crop: Crop | None,
+    planting,
+    stage: GrowthStage,
 ) -> CropHealth:
-    today = env.today
-    has_crop = planting is not None
+    """Canopy vigour and crop development, delegated to the deterministic engine.
 
-    # Read the vegetation series the snapshot already holds, so the health panel and
-    # GET /vegetation can never disagree. With no series there is no NDVI: 0.0 would
-    # claim bare ground, which is a measurement we did not make.
-    ndvi_now = env.vegetation[-1][1] if env.vegetation else None
-    ndvi_then = (
-        next(
-            (
-                value
-                for sample_date, value in reversed(env.vegetation)
-                if sample_date <= today - timedelta(days=30)
-            ),
-            env.vegetation[0][1],
-        )
-        if env.vegetation
-        else None
-    )
+    The vegetation index remains simulated, and its provenance is reported through
+    `env.vegetation_meta` exactly as before — this changes where the arithmetic lives,
+    not what the numbers are made of.
+    """
+    context = build_context(record, env, crop, stage, planting)
+    return _to_crop_health(engine_vegetation.evaluate(context))
 
-    if ndvi_now is not None and ndvi_then:
-        change = (ndvi_now - ndvi_then) / abs(ndvi_then) * 100
-        trend = "improving" if change > 5 else "declining" if change < -5 else "stable"
-    else:
-        change = 0.0
-        trend = None
 
-    ndvi_score = _clamp(ndvi_now / 0.85 * 100, 0, 100) if ndvi_now is not None else None
-    trend_score = _clamp(65 + change, 0, 100) if ndvi_now is not None else None
-
-    days_since_planting = None
-    days_to_harvest = None
-    gdd_accumulated = None
-    if planting is not None and planting.planting_date is not None:
-        days_since_planting = max(0, (today - planting.planting_date).days)
-        # Accumulate over the overlap between the growing period and the snapshot
-        # window. A crop planted before the window starts reports the GDD actually
-        # observed rather than an extrapolation.
-        since_planting = env.between(planting.planting_date, today)
-        base = crop.base_temp_c if crop and crop.base_temp_c is not None else 10.0
-        gdd_accumulated = round(
-            sum(
-                max(0.0, mean - base)
-                for d in since_planting
-                if (mean := _reading(d, "temp_mean_c")) is not None
-            ),
-            1,
-        )
-    if planting is not None and planting.expected_harvest_date is not None:
-        days_to_harvest = (planting.expected_harvest_date - today).days
-
-    stress: list[str] = []
-    if ndvi_now is None:
-        stress.append(f"{INSUFFICIENT}: no vegetation index was available for this farm")
-    else:
-        if change < -5:
-            stress.append(f"NDVI declined {abs(change):.0f}% over the last 30 days")
-        if ndvi_now < 0.35:
-            stress.append(f"Canopy vigour is low (NDVI {ndvi_now})")
-        if not has_crop:
-            stress.append("No crop is registered for this farm, so vigour reflects bare ground")
-
-    # With no vegetation index there is nothing to score. The contract requires a
-    # numeric score and a band, so the neutral placeholders are used and the
-    # explanation carries the truth — the same convention `_unknown_factor` uses.
-    if ndvi_score is None or trend_score is None:
-        composite = 0.0
-    else:
-        composite = ndvi_score * 0.6 + trend_score * 0.4
-
+def _to_crop_health(assessment: VegetationAssessment) -> CropHealth:
+    """Map the engine's result onto the published schema."""
     return CropHealth(
-        score=int(round(composite)),
-        band=ScoreBand.moderate if ndvi_score is None else _band_for(composite),
-        current_ndvi=ndvi_now,
-        ndvi_trend=trend,
-        growth_stage=stage.value,
-        days_since_planting=days_since_planting,
-        days_to_expected_harvest=days_to_harvest,
-        gdd_accumulated=gdd_accumulated,
-        gdd_required=crop.gdd_to_maturity if crop else None,
-        stress_indicators=stress,
-        factors=[
-            (
-                ScoredFactor(
-                    key="canopy_vigour",
-                    label="Canopy vigour",
-                    score=round(ndvi_score, 1),
-                    weight=0.6,
-                    band=_band_for(ndvi_score),
-                    explanation=f"NDVI of {ndvi_now}.",
-                )
-                if ndvi_score is not None
-                else _unknown_factor("canopy_vigour", "Canopy vigour", ["vegetation index"])
-            ),
-            (
-                ScoredFactor(
-                    key="vigour_trend",
-                    label="Vigour trend",
-                    score=round(trend_score, 1),
-                    weight=0.4,
-                    band=_band_for(trend_score),
-                    explanation=f"NDVI is {trend} ({change:+.0f}% over 30 days).",
-                )
-                if trend_score is not None
-                else _unknown_factor("vigour_trend", "Vigour trend", ["vegetation index"])
-            ),
-        ],
-        explanation=(
-            (
-                f"{INSUFFICIENT}: no vegetation index was available, so crop health "
-                "could not be assessed."
-            )
-            if ndvi_now is None
-            else (
-                f"Canopy vigour reads NDVI {ndvi_now} and is {trend}, giving "
-                f"{_band_for(composite).value} crop health."
-            )
-        ),
+        score=int(round(assessment.score)),
+        band=assessment.band,
+        current_ndvi=assessment.current_ndvi,
+        ndvi_trend=assessment.trend,
+        growth_stage=assessment.growth_stage,
+        days_since_planting=assessment.days_since_planting,
+        days_to_expected_harvest=assessment.days_to_expected_harvest,
+        gdd_accumulated=assessment.growing_degree_days,
+        gdd_required=assessment.gdd_required,
+        stress_indicators=list(assessment.stress_indicators),
+        factors=list(assessment.factors),
+        explanation=assessment.explanation,
     )
 
 
@@ -972,133 +611,32 @@ def _advisories(
     farm_id: UUID,
     run_id: UUID,
     created_at: datetime,
-    weather: WeatherRisk,
-    water: WaterRisk,
-    disease: DiseaseRisk,
-    soil: SoilAssessment,
+    drafts: Sequence[AdvisoryDraft],
 ) -> list[Advisory]:
-    """Template advisories derived from the fixture scores.
+    """Attach identity and time to the engine's advisory drafts.
 
-    `ai_mode` on the run is `mock`, so this text is explicitly not model output.
+    The drafts are a pure function of the five assessments — every claim in them cites
+    a threshold an engine applied or a rule that matched. This function adds the two
+    things a pure engine must not invent: a UUID and a timestamp.
+
+    `ai_mode` on the run is `mock`, so none of this text is model output.
     """
-    drafts: list[tuple[AdvisoryCategory, AdvisoryPriority, str, str, str, str | None, float]] = []
-
-    if water.score >= 28:
-        priority = (
-            AdvisoryPriority.critical
-            if water.score >= 70
-            else AdvisoryPriority.high
-            if water.score >= 50
-            else AdvisoryPriority.medium
-        )
-        drafts.append(
-            (
-                AdvisoryCategory.irrigation,
-                priority,
-                f"Apply about {water.recommended_irrigation_mm:.0f} mm of irrigation",
-                "The simulated soil water balance is negative and the forecast offers "
-                "little relief. Applying the recommended depth would return the root "
-                "zone to a comfortable range.",
-                f"Water balance is {water.water_balance_mm:.0f} mm with a "
-                f"{water.deficit_mm:.0f} mm deficit against a "
-                f"{water.water_holding_capacity_mm:.0f} mm reservoir.",
-                water.irrigation_window,
-                0.75,
-            )
-        )
-
-    if disease.score >= 28:
-        top = disease.risks[0].name if disease.risks else "foliar disease"
-        drafts.append(
-            (
-                AdvisoryCategory.disease,
-                AdvisoryPriority.high if disease.score >= 50 else AdvisoryPriority.medium,
-                f"Scout for {top.lower()} this week",
-                "Humidity and temperature are inside the window where infection establishes. "
-                "Scouting now is far cheaper than treating an established outbreak.",
-                disease.conditions_summary,
-                "within 3 days",
-                0.7,
-            )
-        )
-
-    if weather.heat_stress_days >= 2:
-        drafts.append(
-            (
-                AdvisoryCategory.weather,
-                AdvisoryPriority.high if weather.heat_stress_days >= 4 else AdvisoryPriority.medium,
-                f"Prepare for {weather.heat_stress_days} days of heat stress",
-                "Shift irrigation to early morning and avoid canopy operations during peak heat.",
-                "; ".join(weather.drivers),
-                "this week",
-                0.68,
-            )
-        )
-
-    if weather.frost_risk_days:
-        drafts.append(
-            (
-                AdvisoryCategory.weather,
-                AdvisoryPriority.critical,
-                f"Frost expected on {weather.frost_risk_days} day(s)",
-                "Consider frost protection for sensitive growth stages.",
-                f"{weather.frost_risk_days} forecast day(s) fall below 2 °C.",
-                "within 48 hours",
-                0.72,
-            )
-        )
-
-    for limitation in soil.limitations[:2]:
-        drafts.append(
-            (
-                AdvisoryCategory.soil,
-                AdvisoryPriority.medium,
-                "Address a soil constraint",
-                f"{limitation}. Correcting this raises the ceiling on every other intervention.",
-                f"Soil assessment scored {soil.score}/100 ({soil.band.value}).",
-                "this season",
-                0.6,
-            )
-        )
-
-    if not drafts:
-        drafts.append(
-            (
-                AdvisoryCategory.planting,
-                AdvisoryPriority.low,
-                "Conditions are stable — maintain the current plan",
-                "No simulated risk threshold was exceeded this week. Keep monitoring.",
-                f"Weather {weather.score}/100, water {water.score}/100, "
-                f"disease {disease.score}/100.",
-                None,
-                0.55,
-            )
-        )
-
-    order = {
-        AdvisoryPriority.critical: 0,
-        AdvisoryPriority.high: 1,
-        AdvisoryPriority.medium: 2,
-        AdvisoryPriority.low: 3,
-    }
-    drafts.sort(key=lambda d: order[d[1]])
-
     return [
         Advisory(
             id=uuid4(),
             farm_id=farm_id,
             analysis_run_id=run_id,
-            category=category,
-            priority=priority,
-            title=title,
-            body=body,
-            rationale=rationale,
-            action_window=window,
-            confidence=confidence,
+            category=draft.category,
+            priority=draft.priority,
+            title=draft.title,
+            body=draft.body,
+            rationale=draft.rationale,
+            action_window=draft.action_window,
+            confidence=draft.confidence,
             created_at=created_at,
             dismissed_at=None,
         )
-        for category, priority, title, body, rationale, window, confidence in drafts
+        for draft in drafts
     ]
 
 
@@ -1349,114 +887,68 @@ def _build_run(record: FarmRecord, env: EnvironmentSnapshot) -> AnalysisRun:
         crop = get_crop(planting.crop_id)
         stage = GrowthStage(planting.growth_stage)
 
-    weather = _weather_risk(env, crop)
-    water = _water_risk(env, record, crop, stage)
-    disease = _disease_risk(env, record, crop)
-    soil_assessment = _soil_assessment(env, crop)
-    crop_health = _crop_health(env, crop, planting, stage)
+    # One context, five engines. The per-section helpers above build their own context
+    # and are the seam a single-section caller would use; the run needs the engines'
+    # own results rather than the narrowed schemas, because the composite and the
+    # advisories read evidence the published shapes have no field for.
+    context = build_context(record, env, crop, stage, planting)
 
-    def _section(
-        key: str,
-        label: str,
-        score: float,
-        band: ScoreBand,
-        explanation: str,
-        weight: float,
-        assessed: bool,
-    ) -> ScoredFactor:
-        """One top-level factor, carrying weight only if its section was assessed."""
-        if assessed:
-            return ScoredFactor(
-                key=key,
-                label=label,
-                score=score,
-                weight=weight,
-                band=band,
-                explanation=explanation,
-            )
-        return ScoredFactor(
-            key=key,
-            label=label,
-            score=0.0,
-            weight=0.0,
-            band=ScoreBand.moderate,
-            explanation=explanation,
-        )
+    weather_assessment = engine_weather.evaluate(context)
+    water_assessment = engine_water.evaluate(context)
+    disease_assessment = engine_disease.evaluate(context)
+    soil_result = engine_soil.evaluate(context)
+    vegetation_result = engine_vegetation.evaluate(context)
 
-    # A section contributes to the composite only when *every* sub-factor was
-    # assessed. Partial evidence must not move the overall score: water risk still
-    # knows the farm's irrigation type when rainfall is missing, and letting that
-    # alone carry the section would imply a balance nobody calculated.
-    def _assessed(section) -> bool:
-        return bool(section.factors) and all(f.weight > 0 for f in section.factors)
+    weather = _to_weather_risk(weather_assessment)
+    water = _to_water_risk(water_assessment, record)
+    disease = _to_disease_risk(disease_assessment)
+    soil_assessment = _to_soil_assessment(soil_result, env)
+    crop_health = _to_crop_health(vegetation_result)
 
-    factors = [
-        _section(
-            "weather_risk",
-            "Weather risk",
-            _clamp(100 - weather.score, 0, 100),
-            _band_for(100 - weather.score),
-            weather.explanation,
-            0.2,
-            _assessed(weather),
-        ),
-        _section(
-            "water_risk",
-            "Water availability",
-            _clamp(100 - water.score, 0, 100),
-            _band_for(100 - water.score),
-            water.explanation,
-            0.25,
-            _assessed(water),
-        ),
-        _section(
-            "disease_risk",
-            "Disease pressure",
-            _clamp(100 - disease.score, 0, 100),
-            _band_for(100 - disease.score),
-            disease.explanation,
-            0.2,
-            _assessed(disease),
-        ),
-        # Soil is always available in this phase, so it is always assessed.
-        _section(
-            "soil_suitability",
-            "Soil suitability",
-            float(soil_assessment.score),
-            soil_assessment.band,
-            soil_assessment.explanation,
-            0.2,
-            True,
-        ),
-        _section(
-            "crop_health",
-            "Crop health",
-            float(crop_health.score),
-            crop_health.band,
-            crop_health.explanation,
-            0.15,
-            _assessed(crop_health),
-        ),
-    ]
+    overall_assessment = engine_composite.evaluate(
+        context,
+        weather_assessment,
+        water_assessment,
+        disease_assessment,
+        soil_result,
+        vegetation_result,
+    )
+    factors = list(overall_assessment.factors)
+    overall = overall_assessment.score
+    unassessed = list(overall_assessment.unassessed)
 
-    # Factors that could not be assessed carry weight 0.0, so the denominator is the
-    # weight of what was actually measured. Guarded because every factor being
-    # unknown would otherwise divide by zero.
-    total_weight = sum(f.weight for f in factors)
-    overall = sum(f.score * f.weight for f in factors) / total_weight if total_weight > 0 else 0.0
+    # An estimated input is degradation, not absence. When the provider supplied no
+    # reference evapotranspiration, the engine falls back to Hargreaves from the day's
+    # temperature range — FAO-56's own method for exactly that gap — so the factor is
+    # still assessed and the run is still complete. But the value was derived rather
+    # than measured, and a payload must never let that pass unlabelled.
+    estimated_inputs = water_assessment.estimated_et0_days > 0
 
-    # A run is partial when a factor could not be assessed at all. An optional
-    # measurement that changed no factor leaves the run complete, so `partial`
-    # keeps its meaning.
-    unassessed = [f.label for f in factors if f.weight == 0.0]
     degraded = list(
-        dict.fromkeys([*env.degraded_sources, *([env.weather_meta.source] if unassessed else [])])
+        dict.fromkeys(
+            [
+                *env.degraded_sources,
+                *([env.weather_meta.source] if unassessed or estimated_inputs else []),
+            ]
+        )
     )
     status = AnalysisStatus.partial if unassessed else AnalysisStatus.complete
 
     run_id = uuid4()
 
-    advisories = _advisories(record.id, run_id, started, weather, water, disease, soil_assessment)
+    advisories = _advisories(
+        record.id,
+        run_id,
+        started,
+        engine_composite.derive_advisories(
+            context,
+            weather_assessment,
+            water_assessment,
+            disease_assessment,
+            soil_result,
+            overall_assessment,
+        ),
+    )
 
     crop_recs = _crop_recommendations(env, crop.code if crop else None)
     regen_recs = _regenerative_recommendations(

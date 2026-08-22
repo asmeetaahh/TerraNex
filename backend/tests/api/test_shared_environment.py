@@ -18,6 +18,7 @@ import respx
 from httpx import AsyncClient
 
 from app.providers.weather import FORECAST_URL
+from app.rules.registry import resolve_crop_parameters
 from app.services import analysis_service
 from tests.fixtures.open_meteo import daily_payload, hourly_payload
 
@@ -89,7 +90,18 @@ async def test_soil_endpoint_and_analysis_agree(
     run = (await client.post(f"{api_prefix}/farms/{farm_id}/analysis")).json()
 
     assert run["soil_assessment"]["texture_class"] == soil["texture_class"]
-    assert run["water_risk"]["water_holding_capacity_mm"] == soil["water_holding_capacity_mm"]
+
+    # The two endpoints report the same soil at two different depths, and the water
+    # balance is why. `/soil` describes the profile it sampled — a fixed 30 cm interval.
+    # `water_risk` reports TAW, the reservoir *this crop's roots* can actually reach,
+    # which FAO-56 defines as 1000 x (theta_FC - theta_WP) x Zr. A maize crop rooting
+    # to 1.3 m commands more water than the top 30 cm holds, so the two numbers must
+    # differ — but only by the depth ratio, which is what pins them together here.
+    profile_mm = soil["water_holding_capacity_mm"]
+    root_zone_mm = run["water_risk"]["water_holding_capacity_mm"]
+    root_depth_m = resolve_crop_parameters("maize", "cereal")["root_depth_m"]
+
+    assert root_zone_mm == pytest.approx(profile_mm / 300.0 * root_depth_m * 1000.0, rel=0.02)
 
 
 async def test_vegetation_endpoint_and_crop_health_agree(

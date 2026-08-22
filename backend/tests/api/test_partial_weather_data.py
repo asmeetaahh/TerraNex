@@ -63,21 +63,47 @@ def daily(**override):
     }
 
 
-HOURLY = {
-    "latitude": -0.3031,
-    "longitude": 36.08,
-    "timezone": "UTC",
-    "utc_offset_seconds": 0,
-    "current": {
-        "time": f"{date.today().isoformat()}T09:00",
-        "temperature_2m": 24.0,
-        "weather_code": 1,
-    },
-    "hourly": {
-        "time": [f"{date.today().isoformat()}T{h:02d}:00" for h in range(24)],
+def hourly(**override):
+    """A complete hourly block, with individual variables removed or replaced.
+
+    Mirrors `daily()`. It carries every variable `weather.HOURLY_VARIABLES` actually
+    requests, because the disease rules are matched against the hourly series — a
+    fixture missing humidity would degrade every run for a reason no real provider
+    response would produce.
+    """
+    times = [f"{date.today().isoformat()}T{h:02d}:00" for h in range(24)]
+    block = {
+        "time": times,
         "temperature_2m": [24.0] * 24,
-    },
-}
+        "relative_humidity_2m": [60.0] * 24,
+        "precipitation": [0.0] * 24,
+        "wind_speed_10m": [8.0] * 24,
+        "et0_fao_evapotranspiration": [0.2] * 24,
+        "shortwave_radiation": [200.0] * 24,
+        "soil_moisture_0_to_1cm": [0.2] * 24,
+        "soil_temperature_0cm": [22.0] * 24,
+    }
+    for name, value in override.items():
+        if value is ...:
+            block.pop(name, None)
+        else:
+            block[name] = value
+
+    return {
+        "latitude": -0.3031,
+        "longitude": 36.08,
+        "timezone": "UTC",
+        "utc_offset_seconds": 0,
+        "current": {
+            "time": f"{date.today().isoformat()}T09:00",
+            "temperature_2m": 24.0,
+            "weather_code": 1,
+        },
+        "hourly": block,
+    }
+
+
+HOURLY = hourly()
 
 
 @pytest.fixture
@@ -101,18 +127,18 @@ def live_client(app, monkeypatch):
     )
 
 
-def route(daily_payload):
+def route(daily_payload, hourly_payload=None):
     def responder(request: httpx.Request) -> httpx.Response:
         if "daily" in request.url.params:
             return httpx.Response(200, json=daily_payload)
-        return httpx.Response(200, json=HOURLY)
+        return httpx.Response(200, json=hourly_payload or HOURLY)
 
     return respx.get(FORECAST_URL).mock(side_effect=responder)
 
 
-async def run_analysis(client, api_prefix, farm_id, daily_payload):
+async def run_analysis(client, api_prefix, farm_id, daily_payload, hourly_payload=None):
     with respx.mock:
-        route(daily_payload)
+        route(daily_payload, hourly_payload)
         async with client as c:
             return await c.post(f"{api_prefix}/farms/{farm_id}/analysis")
 
@@ -264,8 +290,22 @@ async def test_missing_wind_does_not_crash(live_client, api_prefix, farm_id) -> 
 
 
 async def test_missing_humidity_degrades_disease_risk(live_client, api_prefix, farm_id) -> None:
+    """Infection rules are matched against the *hourly* series, so it is the hourly
+    humidity that has to be absent for the assessment to lose its evidence.
+
+    This test used to drop the daily mean, which was the field the fixture-based
+    scoring read. A daily mean cannot express a ten-hour humid night either way, so
+    dropping it no longer degrades anything — the hourly series is what carries the
+    duration a rule needs.
+    """
     run = (
-        await run_analysis(live_client, api_prefix, farm_id, daily(relative_humidity_2m_mean=...))
+        await run_analysis(
+            live_client,
+            api_prefix,
+            farm_id,
+            daily(),
+            hourly(relative_humidity_2m=...),
+        )
     ).json()
 
     assert run["status"] == "partial"
@@ -277,10 +317,52 @@ async def test_missing_humidity_degrades_disease_risk(live_client, api_prefix, f
     assert "humidity" in humidity["explanation"]
 
 
-async def test_missing_et0_degrades_water_risk(live_client, api_prefix, farm_id) -> None:
-    """Without ET₀ there is no crop demand, so there is no water balance to report."""
+async def test_missing_et0_falls_back_to_hargreaves_and_says_so(
+    live_client, api_prefix, farm_id
+) -> None:
+    """A provider that omits ET₀ still leaves enough to estimate it.
+
+    This used to report the water balance as unassessable. FAO-56 defines Hargreaves
+    for precisely this gap — temperature range and latitude are enough — so throwing
+    away a usable estimate was the wrong call. The balance is now computed.
+
+    What must not change is the labelling: the value was *derived*, not measured, so
+    the weather source is reported in `degraded_sources`. The run stays `complete`
+    because nothing went unassessed, which is what `partial` means here.
+    """
     run = (
         await run_analysis(live_client, api_prefix, farm_id, daily(et0_fao_evapotranspiration=...))
+    ).json()
+
+    assert run["status"] == "complete"
+    assert run["degraded_sources"], "an estimated input must not pass unlabelled"
+
+    water = run["water_risk"]
+    assert water["total_crop_water_demand_mm"] is not None
+    assert water["soil_moisture_pct"] is not None
+    assert INSUFFICIENT not in water["explanation"]
+
+    balance = next(f for f in water["factors"] if f["key"] == "water_balance")
+    assert balance["weight"] > 0.0
+    assert any("estimated from temperature" in driver for driver in water["drivers"])
+
+
+async def test_missing_et0_and_temperature_leaves_no_water_balance(
+    live_client, api_prefix, farm_id
+) -> None:
+    """With neither a measured ET₀ nor the temperatures to estimate one, there is
+    genuinely nothing to compute — and the run says so rather than guessing."""
+    run = (
+        await run_analysis(
+            live_client,
+            api_prefix,
+            farm_id,
+            daily(
+                et0_fao_evapotranspiration=...,
+                temperature_2m_max=...,
+                temperature_2m_min=...,
+            ),
+        )
     ).json()
 
     assert run["status"] == "partial"

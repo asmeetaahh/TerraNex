@@ -13,8 +13,10 @@ simulator's factory only ever emits `simulated`.
 
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Protocol
 
 from app.schemas.common import DataMode, DataSourceMeta
+from app.schemas.enums import SoilTexture
 
 SIMULATED_SOURCE = "simulated"
 
@@ -215,3 +217,45 @@ class GeocodeCandidate:
     def display_name(self) -> str:
         parts = [self.name, self.region, self.country]
         return ", ".join(p for p in parts if p)
+
+
+@dataclass(slots=True)
+class SoilObservation:
+    """Soil properties at one location, from a survey or a declared simulation.
+
+    **Every field is optional.** A global soil database returns what it has sampled for
+    a given point, and coverage is genuinely uneven — a profile with pH and texture but
+    no cation exchange capacity is ordinary, not an error. The risk engine is built to
+    score what is present and report what is not, so `None` must survive the whole way
+    down rather than being defaulted at the boundary.
+
+    Field names match the simulator's output exactly, so `to_soil_profile` maps either
+    source without branching on which one produced it.
+    """
+
+    ph: float | None = None
+    organic_carbon_pct: float | None = None
+    nitrogen_g_kg: float | None = None
+    cec_cmol_kg: float | None = None
+    bulk_density_kg_dm3: float | None = None
+    sand_pct: float | None = None
+    silt_pct: float | None = None
+    clay_pct: float | None = None
+    texture_class: SoilTexture | None = None
+    water_holding_capacity_mm: float | None = None
+
+
+class SoilProvider(Protocol):
+    """What any soil source must offer.
+
+    Named so that a country substituting its own authoritative soil database implements
+    a stated interface rather than guessing at one. The service layer depends on this
+    shape, never on ISRIC's — which is what makes the swap a single new file.
+    """
+
+    source: str
+
+    async def get_soil(self, latitude: float, longitude: float) -> ProviderResult[SoilObservation]:
+        """Soil at a point. Never raises into a service; failure is an
+        `unavailable` result carrying its own provenance."""
+        ...

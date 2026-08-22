@@ -1,0 +1,222 @@
+# TerraNex disease rules.
+#
+# WHAT A RULE IS
+# Each entry states the weather a pathogen needs to establish an infection, in the
+# terms plant pathology actually uses: a temperature band, a humidity or leaf-wetness
+# threshold, and a duration those must hold *without interruption*. A rule either
+# matches the measured hours or it does not. Nothing here is scored by position in a
+# list, weighted by a guess, or nudged by a random number.
+#
+# WHY HOURLY
+# A daily mean hides the event that matters. A day averaging 70% humidity can contain
+# a twelve-hour night above 95%, which is an infection period; a day averaging 80% with
+# no sustained run is not. Duration is the whole mechanism, so these rules are matched
+# against the hourly series and never against a daily summary.
+#
+# PROBABILITY
+# `severity` turns measured hours into a likelihood. At `threshold_hours` the infection
+# requirement is exactly met and the rule reports its floor; at `saturation_hours` the
+# conditions have persisted long enough that infection is near-certain. Between the two
+# the probability rises linearly with hours actually measured — so the number always
+# traces back to observed weather.
+#
+# GLOBAL BY CONSTRUCTION
+# Rules are keyed on crop, never on country, region or coordinate. Late blight behaves
+# the same way in every field that offers it ten cool humid hours.
+#
+# SOURCES
+# Thresholds follow the published infection models these pathogens are managed by —
+# Wallin/BLITECAST for late blight, Tomcast for early blight, and the standard
+# temperature-humidity envelopes reported for the remainder. They are decision-support
+# thresholds, not laboratory constants, and are deliberately conservative.
+
+version: 1
+
+rules:
+  # ---- solanaceae ----
+  - id: late_blight
+    name: Late blight
+    pathogen: Phytophthora infestans
+    crops: [potato, tomato]
+    conditions:
+      - type: consecutive_hours
+        hours: 10
+        temp_c: {min: 10.0, max: 24.0}
+        humidity_pct: {min: 90.0}
+      - type: growth_stage_at_least
+        stage: vegetative
+    severity:
+      threshold_hours: 10
+      saturation_hours: 48
+    preventive_actions:
+      - Apply a protectant fungicide before the next humid period rather than after symptoms appear
+      - Increase row spacing or prune lower foliage to let the canopy dry
+      - Remove volunteer plants and cull piles, which carry the pathogen between seasons
+    scouting_advice: Inspect lower leaves at dawn for water-soaked lesions with pale margins.
+
+  - id: early_blight
+    name: Early blight
+    pathogen: Alternaria solani
+    crops: [potato, tomato]
+    conditions:
+      - type: consecutive_hours
+        hours: 10
+        temp_c: {min: 24.0, max: 29.0}
+        humidity_pct: {min: 85.0}
+    severity:
+      threshold_hours: 10
+      saturation_hours: 40
+    preventive_actions:
+      - Maintain nitrogen: stressed and senescing foliage is infected first
+      - Rotate away from solanaceous crops for at least two seasons
+      - Irrigate at the base rather than over the canopy
+    scouting_advice: Look for concentric dark rings on older leaves near the soil.
+
+  # ---- maize ----
+  - id: grey_leaf_spot
+    name: Grey leaf spot
+    pathogen: Cercospora zeae-maydis
+    crops: [maize]
+    conditions:
+      - type: consecutive_hours
+        hours: 12
+        temp_c: {min: 22.0, max: 30.0}
+        humidity_pct: {min: 95.0}
+      - type: growth_stage_at_least
+        stage: vegetative
+    severity:
+      threshold_hours: 12
+      saturation_hours: 60
+    preventive_actions:
+      - Bury or remove infected residue, which is where the pathogen overwinters
+      - Prefer a tolerant hybrid where grey leaf spot recurs
+      - Consider a fungicide at tasselling if lesions reach the ear leaf
+    scouting_advice: Check the ear leaf for rectangular lesions bounded by leaf veins.
+
+  - id: northern_leaf_blight
+    name: Northern leaf blight
+    pathogen: Exserohilum turcicum
+    crops: [maize, sorghum]
+    conditions:
+      - type: consecutive_hours
+        hours: 6
+        temp_c: {min: 18.0, max: 27.0}
+        humidity_pct: {min: 90.0}
+    severity:
+      threshold_hours: 6
+      saturation_hours: 36
+    preventive_actions:
+      - Rotate out of maize for a season to break the residue cycle
+      - Select a resistant hybrid where the disease is established
+    scouting_advice: Look for long cigar-shaped grey-green lesions on lower leaves.
+
+  # ---- rice ----
+  - id: rice_blast
+    name: Rice blast
+    pathogen: Magnaporthe oryzae
+    crops: [rice]
+    conditions:
+      - type: consecutive_hours
+        hours: 10
+        temp_c: {min: 20.0, max: 28.0}
+        humidity_pct: {min: 90.0}
+    severity:
+      threshold_hours: 10
+      saturation_hours: 44
+    preventive_actions:
+      - Avoid excess nitrogen, which produces the soft tissue the fungus prefers
+      - Keep flood depth stable; alternating wetting and drying raises susceptibility
+      - Use certified seed, which is a common route of introduction
+    scouting_advice: Inspect for diamond-shaped lesions with grey centres on leaves and nodes.
+
+  - id: bacterial_leaf_blight
+    name: Bacterial leaf blight
+    pathogen: Xanthomonas oryzae pv. oryzae
+    crops: [rice]
+    conditions:
+      - type: consecutive_hours
+        hours: 12
+        temp_c: {min: 25.0, max: 34.0}
+        humidity_pct: {min: 85.0}
+    severity:
+      threshold_hours: 12
+      saturation_hours: 48
+    preventive_actions:
+      - Drain the field where feasible; standing water spreads the bacterium
+      - Avoid clipping seedling tips at transplanting, which opens infection courts
+    scouting_advice: Look for yellow wavy-margined lesions advancing from the leaf tip.
+
+  # ---- small grains ----
+  - id: septoria_leaf_blotch
+    name: Septoria leaf blotch
+    pathogen: Zymoseptoria tritici
+    crops: [wheat, barley]
+    conditions:
+      - type: consecutive_hours
+        hours: 12
+        temp_c: {min: 15.0, max: 25.0}
+        humidity_pct: {min: 90.0}
+      - type: total_hours
+        hours: 4
+        precipitation_mm: {min: 0.2}
+    severity:
+      threshold_hours: 12
+      saturation_hours: 52
+    preventive_actions:
+      - Delay sowing slightly where the disease is established, to miss autumn spore release
+      - Bury infected stubble
+    scouting_advice: Check lower leaves for pale blotches speckled with dark fruiting bodies.
+
+  - id: stripe_rust
+    name: Stripe rust
+    pathogen: Puccinia striiformis
+    crops: [wheat, barley]
+    conditions:
+      - type: consecutive_hours
+        hours: 8
+        temp_c: {min: 4.0, max: 16.0}
+        humidity_pct: {min: 90.0}
+    severity:
+      threshold_hours: 8
+      saturation_hours: 40
+    preventive_actions:
+      - Monitor closely: stripe rust advances faster than most cereal diseases once established
+      - Prefer a resistant variety where the disease recurs
+    scouting_advice: Look for yellow-orange pustules in stripes between the leaf veins.
+
+  # ---- legumes ----
+  - id: soybean_rust
+    name: Soybean rust
+    pathogen: Phakopsora pachyrhizi
+    crops: [soybean]
+    conditions:
+      - type: consecutive_hours
+        hours: 8
+        temp_c: {min: 18.0, max: 26.0}
+        humidity_pct: {min: 90.0}
+      - type: growth_stage_at_least
+        stage: flowering
+    severity:
+      threshold_hours: 8
+      saturation_hours: 36
+    preventive_actions:
+      - Scout from flowering onward; the disease is hardest to arrest once past mid-canopy
+      - Apply a triazole fungicide at first detection rather than on a calendar
+    scouting_advice: Examine the underside of lower leaves for small tan pustules.
+
+  - id: bean_anthracnose
+    name: Anthracnose
+    pathogen: Colletotrichum lindemuthianum
+    crops: [common_bean, cowpea]
+    conditions:
+      - type: consecutive_hours
+        hours: 12
+        temp_c: {min: 13.0, max: 26.0}
+        humidity_pct: {min: 92.0}
+    severity:
+      threshold_hours: 12
+      saturation_hours: 48
+    preventive_actions:
+      - Use certified seed; the fungus is carried on and in the seed coat
+      - Stay out of the field while foliage is wet, which moves spores plant to plant
+    scouting_advice: Look for dark sunken lesions on pods and along leaf veins beneath.

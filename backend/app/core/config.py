@@ -59,10 +59,12 @@ class Settings(BaseSettings):
     # development, deterministic demos, and the test suite (see tests/conftest.py).
     WEATHER_PROVIDER: Literal["open_meteo", "simulated"] = "open_meteo"
     GEOCODING_PROVIDER: Literal["open_meteo", "simulated"] = "open_meteo"
-    # When a live weather provider fails, fall back to the simulator (clearly marked
+    SOIL_PROVIDER: Literal["soilgrids", "simulated"] = "soilgrids"
+    # When a live provider fails, fall back to the simulator (clearly marked
     # `simulated`) instead of returning `unavailable`. Useful for demos; never
     # relabels the data.
     WEATHER_FALLBACK_TO_SIMULATION: bool = True
+    SOIL_FALLBACK_TO_SIMULATION: bool = True
 
     PROVIDER_TIMEOUT_S: float = 8.0
     PROVIDER_MAX_RETRIES: int = 2

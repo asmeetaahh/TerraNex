@@ -14,8 +14,9 @@ The snapshot spans a **canonical window** (92 days back, 16 forward) that every
 consumer slices from, so a 7-day forecast panel and a 30-day water balance are
 guaranteed to agree on any date they share.
 
-Soil and vegetation remain simulated in this phase. They carry their own provenance,
-so a response can honestly report live weather alongside simulated soil.
+Soil comes from ISRIC SoilGrids; vegetation is still simulated. Each carries its own
+provenance, so a response can honestly report live weather beside simulated vegetation
+without implying the two are equally observed.
 """
 
 from dataclasses import dataclass, field
@@ -25,11 +26,13 @@ from app.core.config import settings
 from app.core.deps import CurrentUser
 from app.core.logging import get_logger
 from app.db.memory import FarmRecord
+from app.providers import soil as soil_provider
 from app.providers import weather as weather_provider
 from app.providers.base import (
     CurrentObservation,
     DailyObservation,
     HourlyObservation,
+    SoilObservation,
     WeatherObservations,
     simulated_meta,
 )
@@ -44,7 +47,7 @@ from app.schemas.weather import (
     WeatherHourly,
 )
 from app.services.farm_service import primary_planting, require_farm
-from app.services.simulation import SimulatedSoil, simulate_ndvi, simulate_soil
+from app.services.simulation import simulate_ndvi
 
 logger = get_logger(__name__)
 
@@ -69,7 +72,7 @@ class EnvironmentSnapshot:
     daily: list[DailyObservation]
     hourly: list[HourlyObservation]
     current: CurrentObservation | None
-    soil: SimulatedSoil
+    soil: SoilObservation
     vegetation: list[tuple[date, float]]
 
     weather_meta: DataSourceMeta
@@ -121,6 +124,59 @@ class EnvironmentSnapshot:
         Provenance for every input is reported separately through `sources`.
         """
         return list(dict.fromkeys(self.failed_sources))
+
+
+async def _gather_soil(
+    record: FarmRecord,
+    latitude: float,
+    longitude: float,
+    failed_sources: list[str],
+) -> tuple[SoilObservation, DataSourceMeta]:
+    """Soil for one farm, with the same degradation ladder weather already uses.
+
+    Four outcomes, and the difference between the last two is the whole point:
+
+    * **live / cached** — the provider answered; its own provenance is passed through.
+    * **unavailable** — the provider failed and no substitute is configured. The result
+      carries no measurements at all, and the risk engine reports the soil unassessed.
+      An empty profile is the honest answer; a plausible one would drive real fertiliser
+      and irrigation advice for a field nobody has measured.
+    * **simulated after a failure** — a substitute was used. It is labelled `simulated`,
+      never `live`, *and* the failure is recorded in `failed_sources`, because a
+      fallback is degradation even when it produces a usable number.
+    * **simulated by configuration** — the operator asked for the simulator. That is a
+      stated capability rather than a fault, so it is labelled `simulated` and is
+      deliberately **not** recorded as a failure.
+    """
+    result = await soil_provider.get_soil(latitude, longitude)
+
+    if result.ok and result.data is not None:
+        return result.data, result.meta
+
+    failed_sources.append(result.meta.source)
+
+    if not settings.SOIL_FALLBACK_TO_SIMULATION:
+        return SoilObservation(), result.meta
+
+    logger.warning(
+        "soil_provider_fallback",
+        extra={
+            "farm_id": str(record.id),
+            "source": result.meta.source,
+            "reason": result.meta.note,
+        },
+    )
+    fallback = soil_provider.simulated_soil(latitude, longitude)
+    assert fallback.data is not None
+    return fallback.data, DataSourceMeta(
+        source=fallback.meta.source,
+        mode=DataMode.simulated,
+        fetched_at=fallback.meta.fetched_at,
+        note=(
+            f"{result.meta.source} was unavailable ({result.meta.note}); "
+            "soil values below are simulated, not measurements."
+        ),
+    )
 
 
 async def gather_environment(record: FarmRecord) -> EnvironmentSnapshot:
@@ -178,7 +234,7 @@ async def gather_environment(record: FarmRecord) -> EnvironmentSnapshot:
 
     assert observations is not None  # narrowed by both branches above
 
-    soil = simulate_soil(latitude, longitude)
+    soil, soil_meta = await _gather_soil(record, latitude, longitude, failed_sources)
     has_crop = primary_planting(record.id) is not None
 
     vegetation = [
@@ -202,10 +258,7 @@ async def gather_environment(record: FarmRecord) -> EnvironmentSnapshot:
         vegetation=vegetation,
         weather_meta=weather_meta,
         failed_sources=failed_sources,
-        soil_meta=simulated_meta(
-            "Simulated soil: particle sizes classified on the USDA texture triangle. "
-            "Not a soil survey or laboratory result."
-        ),
+        soil_meta=soil_meta,
         vegetation_meta=simulated_meta(
             "Simulated vegetation indices: seasonal canopy model. "
             "Not derived from satellite imagery."

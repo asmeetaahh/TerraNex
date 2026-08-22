@@ -26,6 +26,7 @@ os.environ.setdefault("SEED_DEMO_DATA", "false")
 # transport with respx, so no test ever reaches out.
 os.environ["WEATHER_PROVIDER"] = "simulated"
 os.environ["GEOCODING_PROVIDER"] = "simulated"
+os.environ["SOIL_PROVIDER"] = "simulated"
 # The default suite runs with no database at all, on the in-memory store. Tests that
 # need one create it themselves through the `sqlite_db` fixture below, and the
 # Postgres-marked subset is skipped unless TEST_DATABASE_URL is set. A DATABASE_URL
