@@ -9,6 +9,15 @@ from app.models.analysis import AnalysisRunORM
 from app.models.base import Base
 from app.models.crop import CropORM
 from app.models.farm import FarmCropORM, FarmORM
+from app.models.image import CropImageORM
 from app.models.user import UserORM
 
-__all__ = ["AnalysisRunORM", "Base", "CropORM", "FarmCropORM", "FarmORM", "UserORM"]
+__all__ = [
+    "AnalysisRunORM",
+    "Base",
+    "CropImageORM",
+    "CropORM",
+    "FarmCropORM",
+    "FarmORM",
+    "UserORM",
+]

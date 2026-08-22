@@ -67,7 +67,7 @@ from app.schemas.recommendation import (
 from app.schemas.risk import DiseaseRisk, DiseaseRiskItem, WaterRisk, WeatherRisk
 from app.schemas.soil import SoilAssessment
 from app.schemas.vegetation import CropHealth
-from app.services import environment_service
+from app.services import environment_service, image_service
 from app.services.analysis_context import build_context
 from app.services.environment_service import EnvironmentSnapshot
 from app.services.farm_service import (
@@ -808,7 +808,10 @@ async def dashboard(farm_id: UUID, user: CurrentUser) -> FarmDashboard:
         has_analysis=run is not None,
         analysis=run,
         current_weather=weather.current,
-        recent_images=store.images_for_farm(farm_id)[:5],
+        # Through `image_service` for the same reason as `crops` above: reading the
+        # store directly showed an empty diagnosis panel for a farm whose images were
+        # in the database. Ownership is already resolved by `require_farm` at the top.
+        recent_images=image_service.images_for_farm(farm_id)[:5],
         # The dashboard reports the same provenance as the snapshot it was built
         # from, per panel, so a badge can be rendered accurately for each.
         data_freshness=list(env.sources),

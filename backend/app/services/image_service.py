@@ -8,6 +8,12 @@ else — the shapes are already final.
 Image bytes are validated and measured, then discarded: without object storage there
 is nowhere honest to serve them from, so `url` stays `null` rather than pointing at
 something that does not exist.
+
+**Storage is dual-path.** With `DATABASE_URL` set, images and their diagnoses live in
+`crop_images` and survive a restart; with it unset the in-memory store remains the
+implementation, so the suite needs no database and a fresh clone boots with nothing
+provisioned. Both paths answer identically — the only difference is how long the answer
+lasts.
 """
 
 import hashlib
@@ -23,7 +29,9 @@ from app.core.errors import (
     NotFoundError,
     UnsupportedMediaTypeError,
 )
-from app.db.memory import store
+from app.db import image_repo
+from app.db.memory import ImageMetadata, store
+from app.db.session import database_enabled
 from app.schemas.enums import AIMode, ImageAnalysisStatus, Severity
 from app.schemas.image import (
     CropImage,
@@ -268,29 +276,57 @@ def upload_image(
         analyzed_at=None,
     )
 
-    with store.lock:
-        store.crop_images[image.id] = image
-
-    # The digest seeds the diagnosis, so the same image always yields the same result.
-    _DIGESTS[image.id] = digest
+    # The digest seeds the diagnosis, so the same image always yields the same result —
+    # which is only true for as long as the digest outlives the image.
+    _store_image(image, digest, user)
 
     if analyze:
         return analyze_image(image.id, user)
     return image
 
 
-# Content digests, kept beside the store so diagnosis is a function of the bytes.
-_DIGESTS: dict[UUID, str] = {}
+def _persisted() -> bool:
+    """Whether crop images live in the database on this deployment."""
+    return database_enabled()
 
 
-def _simulate_diagnosis(image: CropImage) -> CropImageAnalysis:
+def _store_image(image: CropImage, digest: str, user: CurrentUser) -> None:
+    """Write a newly uploaded image, with its digest, to the configured storage."""
+    if _persisted():
+        image_repo.insert_image(image, sha256=digest, user_id=user.id)
+        return
+    store.record_image(image, ImageMetadata(sha256=digest))
+
+
+def _update_image(image: CropImage) -> None:
+    """Write a diagnosis onto an already-stored image, leaving its digest alone."""
+    if _persisted():
+        image_repo.update_analysis(image)
+        return
+    store.update_image(image)
+
+
+def _digest_for(image_id: UUID) -> str | None:
+    """The stored content digest for an image, from whichever storage holds it."""
+    if _persisted():
+        return image_repo.get_digest(image_id)
+    return store.image_digest(image_id)
+
+
+def _simulate_diagnosis(image: CropImage, digest: str | None) -> CropImageAnalysis:
     """Deterministic stand-in for the vision model.
 
     Seeded by the image's content digest, so the same photograph always produces the
-    same diagnosis while different photographs differ.
+    same diagnosis while different photographs differ. The digest is passed in rather
+    than looked up here, because *where* it is stored is the caller's concern and a
+    module-global cache of them is what previously broke this guarantee across a
+    restart.
+
+    Falling back to the image id keeps a digest-less row diagnosable rather than
+    erroring, but it is a different seed and therefore a different diagnosis — which is
+    precisely why the digest is now stored rather than held in memory.
     """
-    digest = _DIGESTS.get(image.id, str(image.id))
-    rng = seeded_rng("vision", digest)
+    rng = seeded_rng("vision", digest or str(image.id))
 
     crop_name = None
     if image.farm_crop_id is not None:
@@ -339,7 +375,7 @@ def analyze_image(image_id: UUID, user: CurrentUser) -> CropImage:
     # `get_image` resolves ownership through the image's farm, so analysing someone
     # else's image is refused before any work is done.
     image = get_image(image_id, user)
-    analysis = _simulate_diagnosis(image)
+    analysis = _simulate_diagnosis(image, _digest_for(image_id))
 
     updated = image.model_copy(
         update={
@@ -353,8 +389,7 @@ def analyze_image(image_id: UUID, user: CurrentUser) -> CropImage:
         }
     )
 
-    with store.lock:
-        store.crop_images[image_id] = updated
+    _update_image(updated)
     return updated
 
 
@@ -365,7 +400,7 @@ def get_image(image_id: UUID, user: CurrentUser) -> CropImage:
     belongs to. Someone else's image is `FARM_NOT_FOUND`, deliberately
     indistinguishable from an image that does not exist.
     """
-    image = store.crop_images.get(image_id)
+    image = image_repo.get_image(image_id) if _persisted() else store.crop_images.get(image_id)
     if image is None:
         raise ImageNotFoundError(
             f"Crop image {image_id} does not exist.", details={"image_id": str(image_id)}
@@ -374,6 +409,17 @@ def get_image(image_id: UUID, user: CurrentUser) -> CropImage:
     return image
 
 
+def images_for_farm(farm_id: UUID) -> list[CropImage]:
+    """Every image for a farm, newest first, from whichever storage is configured.
+
+    Ownership is the caller's to enforce — `list_images` and the dashboard both resolve
+    the farm first.
+    """
+    if _persisted():
+        return image_repo.images_for_farm(farm_id)
+    return store.images_for_farm(farm_id)
+
+
 def list_images(farm_id: UUID, *, page: int, page_size: int, user: CurrentUser) -> CropImageList:
     require_farm(farm_id, user)
-    return paginate(CropImageList, store.images_for_farm(farm_id), page, page_size)
+    return paginate(CropImageList, images_for_farm(farm_id), page, page_size)

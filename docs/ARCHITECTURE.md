@@ -228,7 +228,7 @@ what makes the single-branch workflow safe — the contract cannot silently drif
 | Geography-aware climate simulation for the offline and fallback path | **done** |
 | Models, session management, Alembic, database-backed crop catalog and farm CRUD | **done** |
 | Analysis runs — persisted, with `inputs_hash` reuse | **done** |
-| Crop images | still served from the in-memory store |
+| Crop images — persisted, with a stored content digest | **done** |
 | SoilGrids and NASA POWER providers | not started |
 | Authentication — Supabase JWT verification, `users`, farm ownership | **done** |
 | Gemini reasoning and vision | not started |
@@ -247,6 +247,19 @@ a provider recovering from an outage, a ruleset edit or an engine bump all miss.
 hash is internal — `AnalysisRun` is published in the frozen contract and has no field
 for it. Lookups are scoped to the farm even though the hash is not, because a run
 carries `farm_id` on itself and on every advisory.
+
+**A crop image's diagnosis is a function of its bytes.** Each upload stores the
+SHA-256 of the file alongside the image, and that digest seeds the diagnosis, so the
+same photograph is always diagnosed the same way. The digest is internal —
+`CropImage` is published in the frozen contract and has no field for it, exactly as
+with `inputs_hash`. It is stored rather than cached because a lost digest does not
+fail: it silently re-seeds from the image id and returns a *different* verdict for
+unchanged bytes. The image bytes themselves are still discarded — there is no object
+storage in this phase, so `url` stays null rather than pointing at nothing.
+
+Deleting a planting sets its images' `farm_crop_id` to null rather than deleting them.
+A diagnosis is evidence, so removing the planting it was attached to costs the
+photograph its crop link, not its existence.
 
 **Persistence is optional and additive.** With `DATABASE_URL` unset the API runs
 entirely on the in-memory store, so the test suite needs no database and a fresh clone

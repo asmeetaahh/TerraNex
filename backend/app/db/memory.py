@@ -78,6 +78,24 @@ class RunMetadata:
     ruleset_version: str
 
 
+@dataclass(frozen=True, slots=True)
+class ImageMetadata:
+    """What a stored image needs in order to be diagnosed the same way twice.
+
+    The database keeps `sha256` as a column on `crop_images`; the store keeps it here
+    for the same reason — `CropImage` is published in the frozen contract and has no
+    field for it.
+
+    This previously lived in a module-global dict inside `image_service`, outside the
+    store entirely. It was therefore not cleared by `reset()` and not carried by any
+    storage swap, so re-analysing an image after a restart seeded the diagnosis from
+    the image's id instead of its bytes and returned a *different* result for the same
+    photograph.
+    """
+
+    sha256: str
+
+
 @dataclass
 class InMemoryStore:
     """The whole Phase 3 dataset. Insertion order is preserved by `dict`, which is
@@ -93,6 +111,9 @@ class InMemoryStore:
     #: field for any of it.
     run_metadata: dict[UUID, RunMetadata] = field(default_factory=dict)
     crop_images: dict[UUID, CropImage] = field(default_factory=dict)
+    #: Content digests, keyed by image id. Held alongside rather than on the image
+    #: because `CropImage` is published in the frozen contract and has no field for it.
+    image_metadata: dict[UUID, ImageMetadata] = field(default_factory=dict)
 
     # Guards the mutating paths. Uvicorn runs the event loop in one thread, but
     # sync endpoints and tests can touch the store from a worker thread.
@@ -106,6 +127,7 @@ class InMemoryStore:
             self.analysis_runs.clear()
             self.run_metadata.clear()
             self.crop_images.clear()
+            self.image_metadata.clear()
 
     # ---- farms ----
 
@@ -183,6 +205,25 @@ class InMemoryStore:
         return runs[0] if runs else None
 
     # ---- images ----
+
+    def record_image(self, image: CropImage, metadata: ImageMetadata) -> None:
+        """Store an image together with the digest that makes its diagnosis stable."""
+        with self.lock:
+            self.crop_images[image.id] = image
+            self.image_metadata[image.id] = metadata
+
+    def update_image(self, image: CropImage) -> None:
+        """Replace a stored image in place, leaving its digest untouched.
+
+        The bytes did not change, so neither may the digest — it is what makes a repeat
+        diagnosis identical to the one it replaces.
+        """
+        with self.lock:
+            self.crop_images[image.id] = image
+
+    def image_digest(self, image_id: UUID) -> str | None:
+        metadata = self.image_metadata.get(image_id)
+        return metadata.sha256 if metadata is not None else None
 
     def images_for_farm(self, farm_id: UUID) -> list[CropImage]:
         """Newest first."""
