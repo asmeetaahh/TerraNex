@@ -70,6 +70,7 @@ class SoilPoint:
     organic_carbon_pct: float | None = None
     nitrogen_g_kg: float | None = None
     cec_cmol_kg: float | None = None
+    bulk_density_kg_dm3: float | None = None
     sand_pct: float | None = None
     silt_pct: float | None = None
     clay_pct: float | None = None
@@ -99,7 +100,9 @@ class CropParameters:
     """
 
     code: str | None = None
+    name: str | None = None
     category: str | None = None
+    season: str | None = None
 
     # ---- FAO-56, from the ruleset ----
     kc_by_stage: Mapping[str, float] = field(default_factory=dict)
@@ -219,8 +222,17 @@ class AnalysisContext:
     #: Disease rules applicable to the planted crop, resolved by the adapter. Empty
     #: when nothing is planted, which is why no pathogen can be named for a bare field.
     disease_rules: Sequence[DiseaseRule] = ()
+
+    #: Every crop the recommender may propose, resolved by the adapter from whichever
+    #: catalog is configured — the database when one is set, the in-memory store
+    #: otherwise. The engine cannot read either, so an empty catalog here means the
+    #: engine proposes nothing rather than silently reading a store that is not the
+    #: source of truth.
+    catalog: Sequence[CropParameters] = ()
+
     growth_stage: str | None = None
     irrigation_type: str | None = None
+    farming_practice: str | None = None
     planting_date: date | None = None
     expected_harvest_date: date | None = None
     area_hectares: float | None = None
@@ -284,6 +296,11 @@ def canonical_inputs(context: AnalysisContext) -> dict:
         "today": context.today.isoformat(),
         "growth_stage": context.growth_stage,
         "irrigation_type": context.irrigation_type,
+        "farming_practice": context.farming_practice,
+        # Only the codes: a catalog entry's own parameters cannot change a
+        # recommendation without the set of offered codes changing too, and hashing
+        # every field of twenty-six crops would dwarf the rest of the digest.
+        "catalog": sorted(c.code for c in context.catalog if c.code),
         "planting_date": context.planting_date.isoformat() if context.planting_date else None,
         "expected_harvest_date": (
             context.expected_harvest_date.isoformat() if context.expected_harvest_date else None
@@ -312,6 +329,7 @@ def canonical_inputs(context: AnalysisContext) -> dict:
             "organic_carbon_pct": _round(context.soil.organic_carbon_pct, MEASUREMENT_PRECISION),
             "nitrogen_g_kg": _round(context.soil.nitrogen_g_kg, MEASUREMENT_PRECISION),
             "cec_cmol_kg": _round(context.soil.cec_cmol_kg, MEASUREMENT_PRECISION),
+            "bulk_density_kg_dm3": _round(context.soil.bulk_density_kg_dm3, MEASUREMENT_PRECISION),
             "sand_pct": _round(context.soil.sand_pct, MEASUREMENT_PRECISION),
             "silt_pct": _round(context.soil.silt_pct, MEASUREMENT_PRECISION),
             "clay_pct": _round(context.soil.clay_pct, MEASUREMENT_PRECISION),

@@ -78,6 +78,7 @@ def _to_soil_point(soil: object) -> SoilPoint:
         organic_carbon_pct=_numeric(getattr(soil, "organic_carbon_pct", None)),
         nitrogen_g_kg=_numeric(getattr(soil, "nitrogen_g_kg", None)),
         cec_cmol_kg=_numeric(getattr(soil, "cec_cmol_kg", None)),
+        bulk_density_kg_dm3=_numeric(getattr(soil, "bulk_density_kg_dm3", None)),
         sand_pct=_numeric(getattr(soil, "sand_pct", None)),
         silt_pct=_numeric(getattr(soil, "silt_pct", None)),
         clay_pct=_numeric(getattr(soil, "clay_pct", None)),
@@ -102,7 +103,9 @@ def crop_parameters_for(crop: Crop | None) -> CropParameters:
     )
     return CropParameters(
         code=crop.code if crop else None,
+        name=crop.name if crop else None,
         category=str(crop.category) if crop and crop.category else None,
+        season=str(crop.season) if crop and crop.season else None,
         kc_by_stage=resolved["kc_by_stage"],
         root_depth_m=resolved["root_depth_m"],
         depletion_fraction=resolved["depletion_fraction"],
@@ -118,6 +121,24 @@ def crop_parameters_for(crop: Crop | None) -> CropParameters:
         common_diseases=tuple(crop.common_diseases) if crop else (),
         drought_tolerance=str(crop.drought_tolerance) if crop and crop.drought_tolerance else None,
     )
+
+
+def crop_catalog() -> tuple[CropParameters, ...]:
+    """Every crop the recommender may propose, from whichever catalog is configured.
+
+    Routed through `reference_service`, which already branches on `database_enabled()`
+    — so a database-backed deployment offers the same twenty-six crops as an in-memory
+    one. The recommender previously read `app.db.memory.store` directly, and that store
+    is empty whenever a database is configured, so every such deployment silently
+    offered zero crops while `GET /reference/crops` returned the full catalog.
+
+    The engine cannot make this call itself: it reads a session. Resolving here is what
+    keeps `app/engine/` free of the database while still letting it rank a persisted
+    catalog.
+    """
+    from app.services.reference_service import catalog_crops
+
+    return tuple(crop_parameters_for(crop) for crop in catalog_crops())
 
 
 def _planting_date(planting: FarmCropRecord | None) -> date | None:
@@ -169,8 +190,10 @@ def build_context(
         soil=_to_soil_point(env.soil),
         crop=crop_parameters_for(crop),
         disease_rules=disease_rules_for(crop.code if crop else None),
+        catalog=crop_catalog(),
         growth_stage=str(stage),
         irrigation_type=str(record.irrigation_type),
+        farming_practice=str(record.farming_practice),
         planting_date=_planting_date(planting),
         expected_harvest_date=_harvest_date(planting),
         area_hectares=record.area_hectares,

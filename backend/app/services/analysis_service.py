@@ -26,17 +26,18 @@ from app.core.errors import NoAnalysisYetError
 from app.db.memory import FarmCropRecord, FarmRecord, store
 from app.engine import composite as engine_composite
 from app.engine import disease as engine_disease
+from app.engine import recommendations as engine_recommendations
 from app.engine import soil as engine_soil
 from app.engine import vegetation as engine_vegetation
 from app.engine import water as engine_water
 from app.engine import weather as engine_weather
 from app.engine.composite import AdvisoryDraft
 from app.engine.disease import DiseaseAssessment
+from app.engine.recommendations import CropSuggestion, PracticeSuggestion
 from app.engine.soil import SoilAssessmentResult
 from app.engine.vegetation import VegetationAssessment
 from app.engine.water import WaterAssessment
 from app.engine.weather import WeatherAssessment
-from app.providers.base import DailyObservation
 from app.schemas.advisory import Advisory, AdvisoryList
 from app.schemas.analysis import (
     AnalysisRun,
@@ -44,7 +45,7 @@ from app.schemas.analysis import (
     AnalysisRunSummary,
     FarmDashboard,
 )
-from app.schemas.common import DataMode, DataSourceMeta, RiskLevel, ScoreBand, ScoredFactor
+from app.schemas.common import DataMode, DataSourceMeta, ScoreBand, ScoredFactor
 from app.schemas.crop import Crop
 from app.schemas.enums import (
     AdvisoryCategory,
@@ -72,152 +73,13 @@ from app.services.farm_service import (
     primary_planting,
     require_farm,
 )
-from app.services.reference_service import _ensure_catalog, paginate
+from app.services.reference_service import paginate
 
 PROMPT_VERSION = "phase3-fixture-v1"
 
+
 # Crop coefficient (Kc) by growth stage — FAO-56 shaped, used to turn ET₀ into crop
 # water demand.
-_KC_BY_STAGE: dict[GrowthStage, float] = {
-    GrowthStage.not_planted: 0.30,
-    GrowthStage.germination: 0.40,
-    GrowthStage.seedling: 0.55,
-    GrowthStage.vegetative: 0.85,
-    GrowthStage.flowering: 1.15,
-    GrowthStage.fruiting: 1.05,
-    GrowthStage.maturity: 0.75,
-    GrowthStage.harvested: 0.30,
-}
-
-_IRRIGATION_RELIEF = {
-    "rainfed": 0.0,
-    "none": 0.0,
-    "flood": 0.55,
-    "furrow": 0.60,
-    "sprinkler": 0.75,
-    "drip": 0.90,
-}
-
-_REGENERATIVE_PRACTICES = [
-    {
-        "code": "cover_cropping",
-        "name": "Cover cropping",
-        "description": "Keep living roots in the soil between cash crops using "
-        "legume or grass covers.",
-        "benefits": ["Builds soil organic carbon", "Reduces erosion", "Suppresses weeds"],
-        "carbon": "moderate increase over 3-5 seasons",
-        "water": "improves infiltration and reduces surface runoff",
-        "steps": [
-            "Select a cover mix suited to the fallow window",
-            "Drill or broadcast immediately after harvest",
-            "Terminate two to three weeks before the next planting",
-        ],
-        "effort": "moderate",
-        "time_to_benefit": "1-2 seasons",
-        "targets": {"low_carbon": 30, "erosion": 20},
-    },
-    {
-        "code": "reduced_tillage",
-        "name": "Reduced or no-till",
-        "description": "Minimise soil disturbance so aggregates, fungal networks "
-        "and residue cover stay intact.",
-        "benefits": ["Protects soil structure", "Retains moisture", "Cuts fuel use"],
-        "carbon": "slow but durable increase",
-        "water": "notably higher water retention on light soils",
-        "steps": [
-            "Start with a single field to build confidence",
-            "Adjust the planter for residue",
-            "Pair with a cover crop to manage weeds",
-        ],
-        "effort": "high",
-        "time_to_benefit": "2-4 seasons",
-        "targets": {"low_carbon": 25, "compaction": 25},
-    },
-    {
-        "code": "compost_application",
-        "name": "Compost and organic amendment",
-        "description": "Apply well-finished compost or manure to raise organic "
-        "matter and feed soil biology.",
-        "benefits": ["Raises organic carbon quickly", "Improves nutrient holding", "Buffers pH"],
-        "carbon": "fast increase where application rates are sustained",
-        "water": "raises available water capacity",
-        "steps": [
-            "Test the amendment for maturity",
-            "Apply 5-10 t/ha before land preparation",
-            "Incorporate shallowly to limit nitrogen loss",
-        ],
-        "effort": "moderate",
-        "time_to_benefit": "1 season",
-        "targets": {"low_carbon": 35, "low_cec": 20},
-    },
-    {
-        "code": "crop_rotation",
-        "name": "Diverse crop rotation",
-        "description": "Alternate crop families across seasons, including a "
-        "legume, to break pest cycles.",
-        "benefits": ["Breaks disease and pest cycles", "Fixes nitrogen", "Spreads market risk"],
-        "carbon": "modest increase",
-        "water": "varied rooting depths improve profile use",
-        "steps": [
-            "Plan a three-season sequence",
-            "Include at least one legume",
-            "Avoid consecutive seasons of the same family",
-        ],
-        "effort": "low",
-        "time_to_benefit": "1-2 seasons",
-        "targets": {"disease": 30, "low_carbon": 10},
-    },
-    {
-        "code": "mulching",
-        "name": "Surface mulching",
-        "description": "Cover bare soil with crop residue or organic mulch to cut evaporation.",
-        "benefits": ["Cuts evaporative loss", "Moderates soil temperature", "Suppresses weeds"],
-        "carbon": "gradual increase as mulch breaks down",
-        "water": "strong reduction in evaporative loss",
-        "steps": [
-            "Retain residue rather than burning it",
-            "Target 30% or more ground cover",
-            "Top up before the dry period",
-        ],
-        "effort": "low",
-        "time_to_benefit": "immediate",
-        "targets": {"water_stress": 35, "sandy": 20},
-    },
-    {
-        "code": "agroforestry",
-        "name": "Agroforestry and windbreaks",
-        "description": "Integrate trees or shrubs into field margins and alleys.",
-        "benefits": ["Long-term carbon storage", "Wind protection", "Additional income"],
-        "carbon": "large increase over 5-10 years",
-        "water": "reduces wind-driven evaporation",
-        "steps": [
-            "Map margins that will not shade the crop",
-            "Choose nitrogen-fixing species where possible",
-            "Protect seedlings for the first two seasons",
-        ],
-        "effort": "high",
-        "time_to_benefit": "3-5 years",
-        "targets": {"wind": 35, "low_carbon": 15},
-    },
-    {
-        "code": "liming",
-        "name": "Targeted liming",
-        "description": "Correct soil acidity so nutrients become available to the crop.",
-        "benefits": ["Unlocks phosphorus", "Reduces aluminium toxicity", "Improves root growth"],
-        "carbon": "indirect, through better biomass",
-        "water": "indirect, through deeper rooting",
-        "steps": [
-            "Confirm pH with a soil test",
-            "Apply agricultural lime by buffer requirement",
-            "Re-test after two seasons",
-        ],
-        "effort": "low",
-        "time_to_benefit": "1-2 seasons",
-        "targets": {"acidity": 45},
-    },
-]
-
-
 def _band_for(score: float) -> ScoreBand:
     if score >= 80:
         return ScoreBand.excellent
@@ -230,131 +92,16 @@ def _band_for(score: float) -> ScoreBand:
     return ScoreBand.critical
 
 
-def _risk_level_for(score: float) -> RiskLevel:
-    if score >= 70:
-        return RiskLevel.severe
-    if score >= 50:
-        return RiskLevel.high
-    if score >= 28:
-        return RiskLevel.moderate
-    return RiskLevel.low
-
-
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-# --------------------------------------------------------------------------
-# Missing-data handling
-#
-# A real provider omits variables it cannot supply for a location, so any daily
-# field may arrive as None. `None` means *unknown*, which is not the same as zero:
-# treating an absent rainfall reading as "no rain" would invent a drought, and
-# comparing an absent temperature against a threshold raises TypeError.
-#
-# The helpers below skip unknown observations rather than substituting a value,
-# and report when a field has no readings at all so the run can be marked partial.
-# --------------------------------------------------------------------------
-
-# Daily fields the scoring functions depend on, with the label used in messages.
-REQUIRED_DAILY_FIELDS: dict[str, str] = {
-    "temp_max_c": "maximum temperature",
-    "temp_min_c": "minimum temperature",
-    "temp_mean_c": "mean temperature",
-    "humidity_pct": "humidity",
-    "wind_kmh": "wind speed",
-    "et0_mm": "reference evapotranspiration",
-    "precipitation_mm": "precipitation",
-}
-
 INSUFFICIENT = "Insufficient data"
-"""Prefix every unavailable-factor explanation carries, so a caller can detect one."""
+"""Prefix every unavailable-factor explanation carries, so a caller can detect one.
 
-
-def _reading(day: DailyObservation, attr: str) -> float | None:
-    """One usable numeric reading, or None.
-
-    `None` and non-numeric junk are both "unknown": a provider that sends `"hot"`
-    has told us nothing we can compare, and comparing it to a float raises exactly
-    as `None` does. `bool` is excluded because it is a subclass of `int`.
-    """
-    value = getattr(day, attr, None)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
-
-
-def _known(days: Sequence[DailyObservation], attr: str) -> list[float]:
-    """Reported values only. Days without a usable reading are excluded, never defaulted."""
-    return [v for d in days if (v := _reading(d, attr)) is not None]
-
-
-def _has(days: Sequence[DailyObservation], attr: str) -> bool:
-    """Whether any day in the window reported a usable value for this field."""
-    return any(_reading(d, attr) is not None for d in days)
-
-
-def _count_where(days: Sequence[DailyObservation], attr: str, predicate) -> int:
-    """Days whose reported value satisfies `predicate`.
-
-    An unknown value never counts as a match — we cannot claim a hot day we did
-    not observe. The companion `_has` check tells callers whether a zero here
-    means "none occurred" or "nothing was measured".
-    """
-    return sum(1 for d in days if (v := _reading(d, attr)) is not None and predicate(v))
-
-
-def _max_of(days: Sequence[DailyObservation], attr: str) -> float | None:
-    values = _known(days, attr)
-    return max(values) if values else None
-
-
-def _min_of(days: Sequence[DailyObservation], attr: str) -> float | None:
-    values = _known(days, attr)
-    return min(values) if values else None
-
-
-def _sum_of(days: Sequence[DailyObservation], attr: str) -> float | None:
-    """Sum of reported values, or None when nothing was reported.
-
-    Deliberately not `sum(...)` with its 0 default: an empty window would then
-    report 0 mm of rainfall, which is a measurement we never made.
-    """
-    values = _known(days, attr)
-    return sum(values) if values else None
-
-
-def _unavailable(days: Sequence[DailyObservation], *attrs: str) -> list[str]:
-    """Labels of the requested fields that no day in the window reported."""
-    return [REQUIRED_DAILY_FIELDS[a] for a in attrs if not _has(days, a)]
-
-
-def _unknown_factor(key: str, label: str, missing: Sequence[str]) -> ScoredFactor:
-    """A factor that could not be assessed.
-
-    The contract requires a numeric score and a band, and offers no "unknown"
-    member — so `weight=0.0` carries the meaning instead. It excludes the factor
-    from the weighted composite arithmetically rather than by convention, and the
-    explanation states plainly what was missing.
-    """
-    return ScoredFactor(
-        key=key,
-        label=label,
-        # Neutralised placeholders: the contract requires both, and weight=0.0
-        # keeps them out of every derived number.
-        score=0.0,
-        weight=0.0,
-        band=ScoreBand.moderate,
-        explanation=(
-            f"{INSUFFICIENT}: {', '.join(missing)} unavailable from the weather provider, "
-            "so this factor was not assessed and is excluded from the overall score."
-        ),
-    )
-
-
-# --------------------------------------------------------------------------
-# Section builders
-# --------------------------------------------------------------------------
+The engines own this constant now (`app.engine.scoring`); the copy here is what the
+run summary and the irrigation note still cite while they remain service-layer prose.
+"""
 
 
 def _weather_risk(
@@ -640,214 +387,81 @@ def _advisories(
     ]
 
 
-def _crop_recommendations(env: EnvironmentSnapshot, current_code: str | None, limit: int = 5):
-    _ensure_catalog()
-    soil = env.soil
-
-    # Use every past day the snapshot holds, then annualise. The window is bounded by
-    # what the weather provider can supply, so scaling by its actual length keeps the
-    # figure comparable regardless of provider.
-    history = env.history(env.available_history_days) or env.daily
-    temps = _known(history, "temp_mean_c")
-    mean_temp = sum(temps) / len(temps) if temps else None
-
-    # Annualise only the days that actually reported rainfall. Days with no reading
-    # are excluded from both numerator and denominator rather than counted as dry,
-    # which would bias every recommendation toward drought-tolerant crops.
-    rain_days = _known(history, "precipitation_mm")
-    seasonal_rain = (sum(rain_days) * (365 / len(rain_days))) if rain_days else None
-
-    scored: list[tuple[float, Crop, list[str], list[str], list[ScoredFactor]]] = []
-    for crop in store.crops.values():
-        strengths: list[str] = []
-        considerations: list[str] = []
-
-        if crop.ph_min is not None and crop.ph_max is not None:
-            if crop.ph_min <= soil.ph <= crop.ph_max:
-                ph_score = 95.0
-                strengths.append(f"Tolerates the farm's pH of {soil.ph}")
-            else:
-                distance = min(abs(soil.ph - crop.ph_min), abs(soil.ph - crop.ph_max))
-                ph_score = _clamp(95 - distance * 30, 5, 95)
-                considerations.append(
-                    f"Prefers pH {crop.ph_min}-{crop.ph_max}; farm reads {soil.ph}"
-                )
-        else:
-            ph_score = 70.0
-
-        if (
-            crop.optimal_temp_min_c is not None
-            and crop.optimal_temp_max_c is not None
-            and mean_temp is not None
-        ):
-            if crop.optimal_temp_min_c <= mean_temp <= crop.optimal_temp_max_c:
-                temp_score = 95.0
-                strengths.append(f"Mean temperature of {mean_temp:.0f} °C is in its optimal band")
-            else:
-                distance = min(
-                    abs(mean_temp - crop.optimal_temp_min_c),
-                    abs(mean_temp - crop.optimal_temp_max_c),
-                )
-                temp_score = _clamp(95 - distance * 6, 5, 95)
-                considerations.append(
-                    f"Optimal range is {crop.optimal_temp_min_c:.0f}-"
-                    f"{crop.optimal_temp_max_c:.0f} °C"
-                )
-        else:
-            temp_score = 70.0
-
-        if crop.preferred_textures:
-            if soil.texture_class.value in crop.preferred_textures:
-                texture_score = 92.0
-                strengths.append(f"Suits {soil.texture_class.value} soils")
-            else:
-                texture_score = 52.0
-                considerations.append(f"Prefers {', '.join(crop.preferred_textures[:2])}")
-        else:
-            texture_score = 70.0
-
-        if crop.water_need_mm_season and seasonal_rain is not None:
-            ratio = seasonal_rain / crop.water_need_mm_season
-            water_score = _clamp(100 - abs(1 - ratio) * 55, 5, 100)
-            if ratio < 0.7:
-                considerations.append(
-                    f"Needs about {crop.water_need_mm_season:.0f} mm/season; "
-                    f"observed rainfall is around {seasonal_rain:.0f} mm"
-                )
-            elif ratio >= 1.0:
-                strengths.append("Simulated rainfall covers its seasonal water requirement")
-        else:
-            water_score = 70.0
-
-        composite = ph_score * 0.3 + temp_score * 0.3 + texture_score * 0.2 + water_score * 0.2
-
-        factors = [
-            ScoredFactor(
-                key="ph_match",
-                label="pH match",
-                score=round(ph_score, 1),
-                weight=0.3,
-                band=_band_for(ph_score),
-                explanation=f"Soil pH {soil.ph}.",
-            ),
-            ScoredFactor(
-                key="temperature_match",
-                label="Temperature match",
-                score=round(temp_score, 1),
-                weight=0.3,
-                band=_band_for(temp_score),
-                explanation=(
-                    f"Mean temperature {mean_temp:.0f} °C."
-                    if mean_temp is not None
-                    else f"{INSUFFICIENT}: mean temperature unavailable."
-                ),
-            ),
-            ScoredFactor(
-                key="texture_match",
-                label="Texture match",
-                score=round(texture_score, 1),
-                weight=0.2,
-                band=_band_for(texture_score),
-                explanation=f"{soil.texture_class.value} soil.",
-            ),
-            ScoredFactor(
-                key="water_match",
-                label="Water availability",
-                score=round(water_score, 1),
-                weight=0.2,
-                band=_band_for(water_score),
-                explanation=(
-                    f"Seasonal rainfall around {seasonal_rain:.0f} mm."
-                    if seasonal_rain is not None
-                    else f"{INSUFFICIENT}: rainfall unavailable."
-                ),
-            ),
-        ]
-        scored.append((composite, crop, strengths, considerations, factors))
-
-    # Sort by score, then code, so ties never reorder between identical requests.
-    scored.sort(key=lambda entry: (-entry[0], entry[1].code))
-
+def _crop_recommendations(
+    env: EnvironmentSnapshot,
+    record: FarmRecord,
+    crop: Crop | None,
+    stage: GrowthStage,
+    limit: int = 5,
+) -> list[CropRecommendation]:
+    """Crop suitability, delegated to the deterministic engine."""
+    context = build_context(record, env, crop, stage)
     return [
-        CropRecommendation(
-            crop_code=crop.code,
-            crop_name=crop.name,
-            category=crop.category,
-            season=crop.season,
-            suitability_score=int(round(score)),
-            rank=index,
-            is_current_crop=crop.code == current_code,
-            water_requirement_mm=crop.water_need_mm_season,
-            expected_yield_note=None,
-            planting_window=f"{crop.season.value.replace('_', ' ').title()} window",
-            strengths=strengths or ["No standout advantages at this site"],
-            considerations=considerations or ["No significant constraints identified"],
-            factors=factors,
-            rationale=(
-                f"{crop.name} scores {int(round(score))}/100 against this farm's simulated "
-                f"soil and climate."
-            ),
-        )
-        for index, (score, crop, strengths, considerations, factors) in enumerate(scored[:limit], 1)
+        _to_crop_recommendation(suggestion)
+        for suggestion in engine_recommendations.crop_recommendations(context, limit=limit)
     ]
+
+
+def _to_crop_recommendation(suggestion: CropSuggestion) -> CropRecommendation:
+    """Map one ranked crop onto the published schema."""
+    return CropRecommendation(
+        crop_code=suggestion.code,
+        crop_name=suggestion.name,
+        category=suggestion.category,
+        season=suggestion.season,
+        suitability_score=int(round(suggestion.score)),
+        rank=suggestion.rank,
+        is_current_crop=suggestion.is_current_crop,
+        water_requirement_mm=suggestion.water_requirement_mm,
+        expected_yield_note=None,
+        planting_window=suggestion.planting_window,
+        strengths=list(suggestion.strengths),
+        considerations=list(suggestion.considerations),
+        factors=list(suggestion.factors),
+        rationale=suggestion.rationale,
+    )
 
 
 def _regenerative_recommendations(
     env: EnvironmentSnapshot,
     record: FarmRecord,
-    soil_assessment: SoilAssessment,
-    water: WaterRisk,
-    disease: DiseaseRisk,
-    weather: WeatherRisk,
+    crop: Crop | None,
+    stage: GrowthStage,
+    soil: SoilAssessmentResult,
+    water: WaterAssessment,
+    disease: DiseaseAssessment,
+    weather: WeatherAssessment,
     limit: int = 5,
-):
-    soil = env.soil
-
-    signals = {
-        "low_carbon": 100 if soil.organic_carbon_pct < 1.5 else 40,
-        "erosion": 100 if soil.sand_pct > 55 else 35,
-        "compaction": 100 if soil.bulk_density_kg_dm3 > 1.5 else 30,
-        "low_cec": 100 if soil.cec_cmol_kg < 12 else 30,
-        "disease": min(100, disease.score + 20),
-        "water_stress": min(100, water.score + 20),
-        "sandy": 100 if soil.sand_pct > 55 else 25,
-        "wind": min(100, weather.high_wind_days * 30 + 20),
-        "acidity": 100 if soil.ph < 5.5 else 20,
-    }
-
-    scored = []
-    for practice in _REGENERATIVE_PRACTICES:
-        targets: dict[str, int] = practice["targets"]  # type: ignore[assignment]
-        relevance = sum(signals.get(key, 0) * weight for key, weight in targets.items())
-        relevance = _clamp(relevance / max(sum(targets.values()), 1), 5, 100)
-        if record.farming_practice == "regenerative":
-            relevance = _clamp(relevance - 10, 5, 100)
-        scored.append((relevance, practice))
-
-    scored.sort(key=lambda entry: (-entry[0], entry[1]["code"]))
-
+) -> list[RegenerativeRecommendation]:
+    """Regenerative practices, delegated to the deterministic engine."""
+    context = build_context(record, env, crop, stage)
     return [
-        RegenerativeRecommendation(
-            practice_code=practice["code"],
-            practice_name=practice["name"],
-            rank=index,
-            relevance_score=int(round(relevance)),
-            description=practice["description"],
-            expected_benefits=practice["benefits"],
-            soil_carbon_impact=practice["carbon"],
-            water_retention_impact=practice["water"],
-            implementation_steps=practice["steps"],
-            effort_level=practice["effort"],
-            time_to_benefit=practice["time_to_benefit"],
-            considerations=soil_assessment.limitations[:2] or ["No blocking soil constraints"],
-            rationale=(
-                f"{practice['name']} scores {int(round(relevance))}/100 for this farm given "
-                f"{soil.organic_carbon_pct}% organic carbon, {soil.texture_class.value} texture "
-                f"and a water risk of {water.score}/100."
-            ),
+        _to_regenerative_recommendation(suggestion)
+        for suggestion in engine_recommendations.regenerative_recommendations(
+            context, soil, water, disease, weather, limit=limit
         )
-        for index, (relevance, practice) in enumerate(scored[:limit], 1)
     ]
+
+
+def _to_regenerative_recommendation(
+    suggestion: PracticeSuggestion,
+) -> RegenerativeRecommendation:
+    """Map one ranked practice onto the published schema."""
+    return RegenerativeRecommendation(
+        practice_code=suggestion.code,
+        practice_name=suggestion.name,
+        rank=suggestion.rank,
+        relevance_score=int(round(suggestion.relevance)),
+        description=suggestion.description,
+        expected_benefits=list(suggestion.benefits),
+        soil_carbon_impact=suggestion.carbon_impact,
+        water_retention_impact=suggestion.water_impact,
+        implementation_steps=list(suggestion.steps),
+        effort_level=suggestion.effort,
+        time_to_benefit=suggestion.time_to_benefit,
+        considerations=list(suggestion.considerations),
+        rationale=suggestion.rationale,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -950,9 +564,16 @@ def _build_run(record: FarmRecord, env: EnvironmentSnapshot) -> AnalysisRun:
         ),
     )
 
-    crop_recs = _crop_recommendations(env, crop.code if crop else None)
+    crop_recs = _crop_recommendations(env, record, crop, stage)
     regen_recs = _regenerative_recommendations(
-        env, record, soil_assessment, water, disease, weather
+        env,
+        record,
+        crop,
+        stage,
+        soil_result,
+        water_assessment,
+        disease_assessment,
+        weather_assessment,
     )
 
     crop_label = crop.name if crop else "no registered crop"

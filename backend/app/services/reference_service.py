@@ -47,6 +47,21 @@ def _catalog_from_database(category: CropCategory | None, season: Season | None)
         return [Crop.model_validate(row) for row in db.scalars(statement)]
 
 
+def catalog_crops() -> list[Crop]:
+    """The whole crop catalog, unfiltered and unpaginated.
+
+    `list_crops` exists for the reference endpoint and takes filters and a page; the
+    recommender needs every crop exactly once. Both go through the same
+    `database_enabled()` branch, which is the point: a catalog read must never depend
+    on which caller asked for it.
+    """
+    _ensure_catalog()
+
+    if database_enabled():
+        return _catalog_from_database(None, None)
+    return list(store.crops.values())
+
+
 def list_crops(
     *,
     category: CropCategory | None,

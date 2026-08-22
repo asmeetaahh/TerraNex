@@ -135,6 +135,16 @@ def test_a_zero_weighted_factor_with_real_prose_is_not_mistaken_for_unknown() ->
 
 # --------------------------------------------------------------------------
 # Agreement with the code being replaced
+#
+# These guard the *migration*, not the behaviour: while a duplicate of one of these
+# helpers still lives in `analysis_service`, the two must agree, because a one-point
+# drift between them would move scores and look like a genuine change in risk.
+#
+# The companion for `risk_level_for` has been retired: the last caller of the service's
+# copy moved into the engine, the copy was deleted, and a test importing a function that
+# no longer exists guards nothing. `band_for` is the last one still duplicated — the run
+# summary and the composite band still use the service's copy — so its check stays until
+# those move too.
 # --------------------------------------------------------------------------
 
 
@@ -147,10 +157,8 @@ def test_bands_match_the_service_they_were_promoted_from(score: float) -> None:
     assert band_for(score) == _band_for(score)
 
 
-@pytest.mark.parametrize(
-    "score", [0, 10, 24.9, 25, 27.9, 28, 44.9, 45, 49.9, 50, 64.9, 65, 69.9, 70, 79.9, 80, 100]
-)
-def test_risk_levels_match_the_service_they_were_promoted_from(score: float) -> None:
-    from app.services.analysis_service import _risk_level_for
+def test_the_service_no_longer_keeps_its_own_risk_level_helper() -> None:
+    """The migration this file was written to protect, asserted as finished."""
+    from app.services import analysis_service
 
-    assert risk_level_for(score) == _risk_level_for(score)
+    assert not hasattr(analysis_service, "_risk_level_for")
