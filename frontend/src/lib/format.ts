@@ -15,6 +15,13 @@ export function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric' })
 }
 
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const mb = bytes / (1024 * 1024)
+  if (mb >= 1) return `${mb.toFixed(1)} MB`
+  return `${Math.round(bytes / 1024)} KB`
+}
+
 export function greetingForHour(hour: number): string {
   if (hour < 5) return 'Good night'
   if (hour < 12) return 'Good morning'

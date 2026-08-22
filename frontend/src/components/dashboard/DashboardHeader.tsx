@@ -56,7 +56,7 @@ export function DashboardHeader({ farms, selectedFarm, onSelectFarm }: Dashboard
         <button
           type="button"
           disabled
-          title="Coming soon — POST /farms/{farm_id}/analysis is not implemented yet"
+          title="Coming soon — triggering a new analysis run from the dashboard isn't built yet"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.02] text-[color:var(--color-ink-faint)] disabled:cursor-not-allowed"
         >
           <RefreshCw size={15} strokeWidth={1.5} />

@@ -10,13 +10,6 @@ type WeatherRisk = components['schemas']['WeatherRisk']
 type DiseaseRisk = components['schemas']['DiseaseRisk']
 type WaterRisk = components['schemas']['WaterRisk']
 
-function heatStressLevel(days: number): RiskLevel {
-  if (days >= 4) return 'severe'
-  if (days >= 2) return 'high'
-  if (days >= 1) return 'moderate'
-  return 'low'
-}
-
 export function WeatherRisksSection({
   current,
   weatherRisk,
@@ -30,11 +23,9 @@ export function WeatherRisksSection({
   waterRisk: WaterRisk
   enums: EnumCatalog | null
 }) {
-  const heatLevel = heatStressLevel(weatherRisk.heat_stress_days)
-
   const risks: { label: string; level: RiskLevel }[] = [
     { label: 'Fungal Disease', level: diseaseRisk.level },
-    { label: 'Heat Stress', level: heatLevel },
+    { label: 'Heat Stress', level: weatherRisk.level },
     { label: 'Water Stress', level: waterRisk.level },
   ]
 

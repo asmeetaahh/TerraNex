@@ -18,6 +18,8 @@ type AnalysisRunSummary = components['schemas']['AnalysisRunSummary']
 type ScoredFactor = components['schemas']['ScoredFactor']
 type DataSourceMeta = components['schemas']['DataSourceMeta']
 type CropImage = components['schemas']['CropImage']
+type VegetationSeries = components['schemas']['VegetationSeries']
+type WeatherBundle = components['schemas']['WeatherBundle']
 
 const now = new Date()
 const iso = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString()
@@ -173,7 +175,9 @@ const analysis: AnalysisRun = {
     texture_class: 'clay_loam',
     limitations: [],
     explanation: 'Soil pH and texture both sit inside maize’s tolerated range, with adequate organic matter supporting nutrient retention.',
-    factors: [],
+    factors: [
+      factor('organic_carbon', 'Organic carbon', 70, 0.25, 'good', 'Organic carbon at 2.1%.'),
+    ],
   },
   advisories: [
     {
@@ -443,3 +447,58 @@ export const previewHealthHistory: AnalysisRunSummary[] = [
   degraded_sources: [],
   created_at: iso((arr.length - 1 - index) * 7),
 }))
+
+/** Consistent with `previewDashboards[farm].analysis.crop_health` (current_ndvi 0.74, trend "stable"). */
+export const previewVegetation: Record<string, VegetationSeries> = {
+  [previewFarms[0].id]: {
+    farm_id: previewFarms[0].id,
+    meta: simulatedMeta('sentinel-2-ndvi', 'Vegetation index generated locally — no live provider connected yet.'),
+    current_ndvi: 0.74,
+    mean_ndvi: 0.69,
+    trend: 'stable',
+    trend_pct: 3.2,
+    series: [0.58, 0.61, 0.64, 0.67, 0.69, 0.71, 0.72, 0.73, 0.72, 0.74, 0.73, 0.74].map((ndvi, index, arr) => ({
+      date: iso((arr.length - 1 - index) * 7).slice(0, 10),
+      ndvi,
+      evi: Math.round((ndvi * 0.82 + 0.02) * 1000) / 1000,
+      cloud_cover_pct: 10 + ((index * 7) % 25),
+    })),
+  },
+}
+
+/**
+ * Consistent with `previewDashboards[farm].analysis.weather_risk` and
+ * `.current_weather`: min_temp_c 14.2 / max_temp_c 31.6 / total_precipitation_mm
+ * 6.4 / longest_dry_spell_days 4 / heat_stress_days 1 all line up with the days below.
+ */
+export const previewWeatherBundle: Record<string, WeatherBundle> = {
+  [previewFarms[0].id]: {
+    farm_id: previewFarms[0].id,
+    latitude: previewFarms[0].latitude,
+    longitude: previewFarms[0].longitude,
+    timezone: 'Africa/Nairobi',
+    meta: simulatedMeta('open-meteo', 'Weather generated locally — no live provider connected yet.'),
+    current: {
+      observed_at: iso(0),
+      temperature_c: 22.4,
+      feels_like_c: 22.9,
+      condition: 'partly_cloudy',
+      condition_label: 'Partly cloudy',
+      humidity_pct: 58,
+      wind_speed_kmh: 11,
+      wind_direction_deg: 140,
+      precipitation_mm: 0,
+      cloud_cover_pct: 45,
+      pressure_hpa: 1013,
+    },
+    daily: [
+      { date: iso(0).slice(0, 10), temp_min_c: 16, temp_max_c: 27, temp_mean_c: 21.5, humidity_mean_pct: 55, precipitation_mm: 0, precipitation_hours: 0, wind_max_kmh: 10, et0_mm: 4.2, condition: 'partly_cloudy' },
+      { date: iso(-1).slice(0, 10), temp_min_c: 15, temp_max_c: 26, temp_mean_c: 20.5, humidity_mean_pct: 60, precipitation_mm: 0, precipitation_hours: 0, wind_max_kmh: 9, et0_mm: 4.0, condition: 'clear' },
+      { date: iso(-2).slice(0, 10), temp_min_c: 14.2, temp_max_c: 25, temp_mean_c: 19.6, humidity_mean_pct: 62, precipitation_mm: 0, precipitation_hours: 0, wind_max_kmh: 8, et0_mm: 3.8, condition: 'clear' },
+      { date: iso(-3).slice(0, 10), temp_min_c: 16, temp_max_c: 31.6, temp_mean_c: 23.8, humidity_mean_pct: 40, precipitation_mm: 0, precipitation_hours: 0, wind_max_kmh: 14, et0_mm: 5.1, condition: 'clear' },
+      { date: iso(-4).slice(0, 10), temp_min_c: 17, temp_max_c: 28, temp_mean_c: 22.5, humidity_mean_pct: 58, precipitation_mm: 2.4, precipitation_hours: 2, wind_max_kmh: 12, et0_mm: 4.3, condition: 'light_rain' },
+      { date: iso(-5).slice(0, 10), temp_min_c: 16, temp_max_c: 26, temp_mean_c: 21, humidity_mean_pct: 65, precipitation_mm: 4.0, precipitation_hours: 3, wind_max_kmh: 15, et0_mm: 3.9, condition: 'rain' },
+      { date: iso(-6).slice(0, 10), temp_min_c: 15, temp_max_c: 27, temp_mean_c: 21, humidity_mean_pct: 55, precipitation_mm: 0, precipitation_hours: 0, wind_max_kmh: 10, et0_mm: 4.1, condition: 'partly_cloudy' },
+    ],
+  },
+}

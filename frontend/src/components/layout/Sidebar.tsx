@@ -24,14 +24,14 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: '/farms', label: 'Dashboard', icon: Grid2x2 },
-  { to: '/farms/farm-health', label: 'Farm Health', icon: TreePine, soon: true },
-  { to: '/farms/crop-intelligence', label: 'Crop Intelligence', icon: ScanSearch, soon: true },
-  { to: '/farms/diagnosis', label: 'Diagnosis', icon: Microscope, soon: true },
-  { to: '/farms/recommendations', label: 'Recommendations', icon: Sparkles, soon: true },
-  { to: '/farms/weather-risks', label: 'Weather & Risks', icon: Radar, soon: true },
-  { to: '/farms/ai-advisory', label: 'AI Advisory', icon: CircleCheck, soon: true },
-  { to: '/farms/regenerative', label: 'Regenerative', icon: Recycle, soon: true },
-  { to: '/farms/data-explorer', label: 'Data Explorer', icon: FileSearch, soon: true },
+  { to: '/farms/farm-health', label: 'Farm Health', icon: TreePine },
+  { to: '/farms/crop-intelligence', label: 'Crop Intelligence', icon: ScanSearch },
+  { to: '/farms/diagnosis', label: 'Diagnosis', icon: Microscope },
+  { to: '/farms/recommendations', label: 'Recommendations', icon: Sparkles },
+  { to: '/farms/weather-risks', label: 'Weather & Risks', icon: Radar },
+  { to: '/farms/ai-advisory', label: 'AI Advisory', icon: CircleCheck },
+  { to: '/farms/regenerative', label: 'Regenerative', icon: Recycle },
+  { to: '/farms/data-explorer', label: 'Data Explorer', icon: FileSearch },
   { to: '/farms/settings', label: 'Settings', icon: Settings, soon: true },
 ]
 
