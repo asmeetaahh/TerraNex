@@ -3,18 +3,11 @@ import type { components } from '../../api/types.gen'
 import type { EnumCatalog } from '../../api/reference'
 import { Card } from '../ui/Card'
 import { findEnumLabel } from '../../hooks/useEnumCatalog'
-import { STATUS_COLOR, statusFromRiskLevel, titleCase, type RiskLevel } from '../../lib/status'
+import { STATUS_COLOR, statusFromRiskLevel, titleCase } from '../../lib/status'
 
 type WeatherRisk = components['schemas']['WeatherRisk']
 type DiseaseRisk = components['schemas']['DiseaseRisk']
 type WaterRisk = components['schemas']['WaterRisk']
-
-function heatStressLevel(days: number): RiskLevel {
-  if (days >= 4) return 'severe'
-  if (days >= 2) return 'high'
-  if (days >= 1) return 'moderate'
-  return 'low'
-}
 
 export function RiskOverviewGrid({
   weatherRisk,
@@ -27,8 +20,6 @@ export function RiskOverviewGrid({
   waterRisk: WaterRisk
   enums: EnumCatalog | null
 }) {
-  const heatLevel = heatStressLevel(weatherRisk.heat_stress_days)
-
   const risks = [
     {
       key: 'fungal_disease',
@@ -42,7 +33,7 @@ export function RiskOverviewGrid({
       key: 'heat_stress',
       label: 'Heat Stress',
       icon: Flame,
-      level: heatLevel,
+      level: weatherRisk.level,
       explanation: weatherRisk.explanation,
       metric: `${weatherRisk.heat_stress_days} day${weatherRisk.heat_stress_days === 1 ? '' : 's'} forecast above threshold`,
     },

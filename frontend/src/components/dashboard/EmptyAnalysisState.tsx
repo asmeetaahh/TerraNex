@@ -18,7 +18,7 @@ export function EmptyAnalysisState({ farmName }: { farmName: string }) {
       <button
         type="button"
         disabled
-        title="Coming soon — POST /farms/{farm_id}/analysis is not implemented yet"
+        title="Coming soon — triggering a new analysis run from the dashboard isn't built yet"
         className="mt-1 rounded-lg border border-white/[0.08] bg-white/[0.02] px-4 py-2 text-sm font-medium text-[color:var(--color-ink-faint)] disabled:cursor-not-allowed"
       >
         Run first analysis
