@@ -57,7 +57,11 @@ class Settings(BaseSettings):
     #
     # `simulated` remains fully supported and is selected explicitly for offline
     # development, deterministic demos, and the test suite (see tests/conftest.py).
-    WEATHER_PROVIDER: Literal["open_meteo", "simulated"] = "open_meteo"
+    # `nasa_power` is opt-in and never selected automatically. It is a daily historical
+    # record that lags by roughly three days and carries no hourly series, so it cannot
+    # serve forecasts or the disease engine's consecutive-hour rules. Open-Meteo remains
+    # the default, and the degradation ladder is unchanged.
+    WEATHER_PROVIDER: Literal["open_meteo", "nasa_power", "simulated"] = "open_meteo"
     GEOCODING_PROVIDER: Literal["open_meteo", "simulated"] = "open_meteo"
     SOIL_PROVIDER: Literal["soilgrids", "simulated"] = "soilgrids"
     # When a live provider fails, fall back to the simulator (clearly marked

@@ -230,7 +230,7 @@ what makes the single-branch workflow safe — the contract cannot silently drif
 | Analysis runs — persisted, with `inputs_hash` reuse | **done** |
 | Crop images — persisted, with a stored content digest | **done** |
 | Soil profiles — persisted per farm, refetched only after the retention window | **done** |
-| NASA POWER provider | not started |
+| NASA POWER provider — opt-in daily record, `WEATHER_PROVIDER=nasa_power` | **done** |
 | Authentication — Supabase JWT verification, `users`, farm ownership | **done** |
 | Gemini narrative — summary interpreted from computed scores | **done** |
 | Gemini vision — crop-image diagnosis, structured output, one repair retry | **done** |

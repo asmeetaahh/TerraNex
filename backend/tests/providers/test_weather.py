@@ -555,3 +555,84 @@ async def test_default_path_preserves_caching(monkeypatch) -> None:
     assert first.meta.mode is DataMode.live
     assert second.meta.mode is DataMode.cached
     assert route.call_count == 2, "two documents fetched once each, then served from cache"
+
+
+# --------------------------------------------------------------------------
+# Provider selection
+#
+# NASA POWER is opt-in. `get_observations` is the only dispatch point, so these pin that
+# the default is unchanged and that nothing reaches POWER without being configured for
+# it — the property that keeps the existing degradation ladder intact.
+# --------------------------------------------------------------------------
+
+
+def test_open_meteo_remains_the_declared_default() -> None:
+    """Adding a provider must not change which one a fresh deployment uses."""
+    from app.core.config import Settings
+
+    assert Settings.model_fields["WEATHER_PROVIDER"].default == "open_meteo"
+
+
+def test_nasa_power_is_a_permitted_value() -> None:
+    from typing import get_args
+
+    from app.core.config import Settings
+
+    permitted = get_args(Settings.model_fields["WEATHER_PROVIDER"].annotation)
+    assert set(permitted) == {"open_meteo", "nasa_power", "simulated"}
+
+
+async def test_the_default_provider_never_calls_nasa_power(monkeypatch) -> None:
+    """The regression that matters: an unconfigured deployment must not reach POWER."""
+    from app.providers import nasa_power
+
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "open_meteo")
+
+    called = False
+
+    async def spy(*args, **kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(nasa_power, "power_observations", spy)
+
+    with respx.mock:
+        _route()
+        await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert called is False
+
+
+async def test_selecting_nasa_power_routes_to_it(monkeypatch) -> None:
+    from app.providers import nasa_power
+    from app.providers.base import ProviderResult, WeatherObservations
+
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "nasa_power")
+
+    seen: dict = {}
+
+    async def spy(latitude, longitude, *, today=None):
+        seen.update(latitude=latitude, longitude=longitude)
+        return ProviderResult.live(
+            WeatherObservations(
+                latitude=latitude, longitude=longitude, timezone=None, current=None
+            ),
+            "nasa-power",
+        )
+
+    monkeypatch.setattr(nasa_power, "power_observations", spy)
+
+    result = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert result.meta.source == "nasa-power"
+    assert seen == {"latitude": NASHIK_LAT, "longitude": NASHIK_LON}
+
+
+async def test_selecting_simulated_still_bypasses_every_network_provider(monkeypatch) -> None:
+    """Unchanged behaviour, pinned so the new branch cannot have reordered it."""
+    monkeypatch.setattr(weather.settings, "WEATHER_PROVIDER", "simulated")
+
+    result = await weather.get_observations(NASHIK_LAT, NASHIK_LON)
+
+    assert result.ok
+    assert result.meta.mode is DataMode.simulated

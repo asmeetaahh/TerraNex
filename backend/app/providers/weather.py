@@ -484,4 +484,13 @@ async def get_observations(
     if settings.WEATHER_PROVIDER == "simulated":
         return simulated_observations(latitude, longitude, today=today)
 
+    if settings.WEATHER_PROVIDER == "nasa_power":
+        # Opt-in only. Nothing routes here unless it was configured explicitly: NASA
+        # POWER is a daily historical record, so it carries no hourly series and no
+        # current observation, and promoting it automatically would silently disable the
+        # disease engine on a deployment that had merely lost Open-Meteo.
+        from app.providers.nasa_power import power_observations
+
+        return await power_observations(latitude, longitude, today=today)
+
     return await open_meteo_observations(latitude, longitude)
