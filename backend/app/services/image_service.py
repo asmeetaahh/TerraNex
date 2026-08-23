@@ -1,13 +1,20 @@
-"""Crop-image upload and simulated diagnosis.
+"""Crop-image upload and diagnosis.
 
-**No model is called here.** Phase 3 produces a deterministic mock diagnosis so the
-full upload → analyse → display flow can be built and demonstrated; every result is
-stamped `ai_mode="mock"`. The vision phase replaces `_simulate_diagnosis` and nothing
-else — the shapes are already final.
+**Which engine answers depends on `AI_PROVIDER`, and the payload always says which.**
+With the default `mock`, `_simulate_diagnosis` produces a deterministic result seeded
+from the file's digest and every payload records `ai_mode="mock"` — no model is called
+and nothing is billed. With `gemini`, a vision model examines the stored photograph and
+the result records `ai_mode="gemini"`. When a model was configured but could not answer,
+the simulator's result is served as `ai_mode="fallback"` with the reason in
+`analysis_error`, so a degraded answer is never mistaken for a real one.
 
-Image bytes are validated and measured, then discarded: without object storage there
-is nowhere honest to serve them from, so `url` stays `null` rather than pointing at
-something that does not exist.
+That distinction is the whole point of `AIMode`: the simulator has never looked at an
+image, and a payload must never let a seeded guess pass as an observation.
+
+The photograph is stored downscaled so the diagnosis request — a separate HTTP call from
+the upload — still has something to examine. The bytes are never served to a client;
+there is no object storage, so `url` stays `null` rather than pointing at something that
+does not exist.
 
 **Storage is dual-path.** With `DATABASE_URL` set, images and their diagnoses live in
 `crop_images` and survive a restart; with it unset the in-memory store remains the
@@ -49,6 +56,25 @@ from app.services.reference_service import get_crop, paginate
 from app.services.simulation import seeded_rng
 
 PROMPT_VERSION = "phase3-vision-fixture-v1"
+"""Stamped on the deterministic simulator's output.
+
+Unchanged: it identifies the fixture that produced the result, and the fixture has not
+changed. A run stamped with this was not produced by a model.
+"""
+
+VISION_PROMPT_VERSION = "phase5-vision-v1"
+"""Stamped on a diagnosis a vision model produced.
+
+Separate from `PROMPT_VERSION` because the two are different questions asked of different
+engines, and `prompt_version` exists so a stored diagnosis can be traced to the exact
+prompt behind it. Stamping the fixture's version on a Gemini result made every vision
+answer look like it came from `_simulate_diagnosis` — which is precisely the confusion
+`ai_mode` and `prompt_version` are there to prevent.
+
+Bump this whenever `app.ai.vision.SYSTEM_INSTRUCTION` or `build_prompt` changes in a way
+that could move a diagnosis, so stored results stay attributable to the wording that
+produced them.
+"""
 
 DISCLAIMER = (
     "AI-assisted diagnosis for guidance only — confirm with a qualified agronomist "
@@ -231,7 +257,50 @@ def _dimensions(data: bytes) -> tuple[int | None, int | None]:
         return None, None
 
 
-def upload_image(
+MAX_STORED_EDGE_PX = 1568
+"""Longest edge kept in storage.
+
+The resolution ceiling a vision model works to, so reducing to it costs no diagnostic
+detail — a lesion legible at 1568 px is legible to the model, and pixels beyond that are
+downsampled before it ever sees them. It is the difference between a row of a few
+hundred kilobytes and one of ten megabytes.
+"""
+
+
+def _downscale(data: bytes) -> bytes:
+    """The photograph as it will be stored: long edge capped, re-encoded as JPEG.
+
+    Returns the original bytes unchanged when Pillow cannot open the file, when the
+    image is already small enough, or when re-encoding would *grow* it. Storing
+    something is what matters here; storing it optimally does not, and an upload that
+    validation accepted must never fail because a convenience step could not run.
+
+    The caller keeps reporting the original `size_bytes`, `width` and `height` — those
+    describe what the user sent.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as img:
+            if max(img.width, img.height) <= MAX_STORED_EDGE_PX:
+                return data
+
+            img.thumbnail((MAX_STORED_EDGE_PX, MAX_STORED_EDGE_PX))
+            # JPEG cannot hold an alpha channel or a palette; converting first means a
+            # PNG screenshot with transparency re-encodes instead of raising.
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85, optimize=True)
+            reduced = buffer.getvalue()
+    except Exception:  # noqa: BLE001 - storage is best-effort, validation already passed
+        return data
+
+    return reduced if len(reduced) < len(data) else data
+
+
+async def upload_image(
     farm_id: UUID,
     *,
     data: bytes,
@@ -277,11 +346,16 @@ def upload_image(
     )
 
     # The digest seeds the diagnosis, so the same image always yields the same result —
-    # which is only true for as long as the digest outlives the image.
-    _store_image(image, digest, user)
+    # which is only true for as long as the digest outlives the image. The pixels are
+    # kept for the same reason: diagnosis is a separate request, and until now the
+    # photograph no longer existed by the time it arrived.
+    stored_bytes = _downscale(data)
+    _store_image(image, digest, stored_bytes, user)
 
     if analyze:
-        return analyze_image(image.id, user)
+        # The bytes are still in hand, so the diagnosis reads them directly rather than
+        # loading back what was written a line ago.
+        return await analyze_image(image.id, user, pixels=stored_bytes)
     return image
 
 
@@ -290,20 +364,36 @@ def _persisted() -> bool:
     return database_enabled()
 
 
-def _store_image(image: CropImage, digest: str, user: CurrentUser) -> None:
-    """Write a newly uploaded image, with its digest, to the configured storage."""
+def _store_image(image: CropImage, digest: str, pixels: bytes | None, user: CurrentUser) -> None:
+    """Write a newly uploaded image, with its digest and pixels, to configured storage."""
     if _persisted():
-        image_repo.insert_image(image, sha256=digest, user_id=user.id)
+        image_repo.insert_image(image, sha256=digest, image_bytes=pixels, user_id=user.id)
         return
-    store.record_image(image, ImageMetadata(sha256=digest))
+    store.record_image(image, ImageMetadata(sha256=digest, image_bytes=pixels))
 
 
 def _update_image(image: CropImage) -> None:
-    """Write a diagnosis onto an already-stored image, leaving its digest alone."""
+    """Write a diagnosis onto an already-stored image.
+
+    Neither the digest nor the pixels are passed, and both storage paths update only the
+    diagnosis fields — so a re-diagnosis cannot discard the photograph it was derived
+    from.
+    """
     if _persisted():
         image_repo.update_analysis(image)
         return
     store.update_image(image)
+
+
+def _pixels_for(image_id: UUID) -> bytes | None:
+    """The stored photograph, from whichever storage holds it.
+
+    None for an image uploaded before pixels were kept, or one whose bytes could not be
+    stored. A caller must treat that as "cannot look at the picture", not as an error.
+    """
+    if _persisted():
+        return image_repo.get_bytes(image_id)
+    return store.image_bytes(image_id)
 
 
 def _digest_for(image_id: UUID) -> str | None:
@@ -371,26 +461,112 @@ def _simulate_diagnosis(image: CropImage, digest: str | None) -> CropImageAnalys
     )
 
 
-def analyze_image(image_id: UUID, user: CurrentUser) -> CropImage:
+async def analyze_image(
+    image_id: UUID, user: CurrentUser, *, pixels: bytes | None = None
+) -> CropImage:
+    """Diagnose one uploaded image.
+
+    **A completed diagnosis is returned as-is rather than recomputed.** The photograph is
+    immutable, so a second analysis of the same bytes is the same question — and once a
+    model is doing the work it is also a second bill. The contract has no `force`
+    parameter, which makes reuse the only behaviour a caller can ask for; re-uploading
+    the image is how you get a fresh look at it.
+
+    `pixels` lets the upload path hand over bytes it already holds instead of loading
+    back what it wrote a moment earlier. Everything else resolves them from storage.
+    """
     # `get_image` resolves ownership through the image's farm, so analysing someone
     # else's image is refused before any work is done.
     image = get_image(image_id, user)
-    analysis = _simulate_diagnosis(image, _digest_for(image_id))
+
+    if image.analysis is not None and image.analysis_status is ImageAnalysisStatus.complete:
+        return image
+
+    if pixels is None:
+        pixels = _pixels_for(image_id)
+
+    analysis, ai_mode, model_name, error, prompt_version = await _diagnose(image, pixels)
 
     updated = image.model_copy(
         update={
             "analysis_status": ImageAnalysisStatus.complete,
             "analysis": analysis,
-            "analysis_error": None,
-            "model": None,
-            "prompt_version": PROMPT_VERSION,
-            "ai_mode": AIMode.mock,
+            "analysis_error": error,
+            "model": model_name,
+            "prompt_version": prompt_version,
+            "ai_mode": ai_mode,
             "analyzed_at": datetime.now(UTC),
         }
     )
 
     _update_image(updated)
     return updated
+
+
+async def _diagnose(
+    image: CropImage, pixels: bytes | None
+) -> tuple[CropImageAnalysis, AIMode, str | None, str | None, str]:
+    """Produce one diagnosis, and say honestly what produced it.
+
+    Returns the analysis alongside the three fields that make it traceable: `ai_mode`,
+    the model name, and the `prompt_version` of the wording that actually produced it.
+    A fallback carries the *simulator's* version, because the simulator is what answered.
+
+    Three outcomes, and `ai_mode` distinguishes them because the contract exists to let a
+    caller tell real model output from a canned answer:
+
+    * **mock** — `AI_PROVIDER=mock`, the default. The deterministic simulator, unchanged.
+      No model is called, nothing is billed, and the result is reproducible.
+    * **gemini** — a vision model examined the photograph. Includes a confident *"this is
+      not plant material"*, which is a real finding rather than a failure.
+    * **fallback** — a model was configured but could not answer: no key, no stored
+      pixels, a timeout, an API error, or output that failed validation twice. The
+      simulator's answer is served with the reason recorded in `analysis_error`, so the
+      degradation is visible rather than silently indistinguishable from success.
+
+    An image uploaded before pixels were stored lands in the third case. Nothing is
+    fabricated to stand in for the photograph — there is simply no image to examine, and
+    the mode says so.
+    """
+    simulated = _simulate_diagnosis(image, _digest_for(image.id))
+
+    if settings.AI_PROVIDER != "gemini":
+        return simulated, AIMode.mock, None, None, PROMPT_VERSION
+
+    if not pixels:
+        # Not a provider failure — there is nothing to look at. Still `fallback`, because
+        # a model was configured and did not produce this answer.
+        return (
+            simulated,
+            AIMode.fallback,
+            None,
+            "No stored image data; this image predates image retention and cannot be "
+            "examined by a model.",
+            PROMPT_VERSION,
+        )
+
+    from app.ai import vision
+
+    crop_name = None
+    if image.farm_crop_id is not None:
+        planting = find_planting(image.farm_id, image.farm_crop_id)
+        if planting is not None:
+            crop = get_crop(planting.crop_id)
+            crop_name = crop.name if crop else None
+
+    result = await vision.diagnose_image(
+        pixels,
+        content_type=image.content_type,
+        context=vision.ImageContext(crop_name=crop_name, note=image.note),
+        disclaimer=DISCLAIMER,
+    )
+
+    if result.ok and result.data is not None:
+        return result.data, AIMode.gemini, settings.GEMINI_MODEL, None, VISION_PROMPT_VERSION
+
+    # The simulator answered, so it is the simulator's prompt version that describes this
+    # result — stamping the vision one would attribute a fixture to a model.
+    return simulated, AIMode.fallback, None, result.meta.note, PROMPT_VERSION
 
 
 def get_image(image_id: UUID, user: CurrentUser) -> CropImage:

@@ -54,8 +54,19 @@ def _as_image(row: CropImageORM) -> CropImage:
     )
 
 
-def insert_image(image: CropImage, *, sha256: str, user_id: UUID | None = None) -> None:
-    """Store one uploaded image, still awaiting diagnosis."""
+def insert_image(
+    image: CropImage,
+    *,
+    sha256: str,
+    image_bytes: bytes | None = None,
+    user_id: UUID | None = None,
+) -> None:
+    """Store one uploaded image, still awaiting diagnosis.
+
+    `image_bytes` is the downscaled photograph. It is written once, here, and never
+    again: `update_analysis` touches only the diagnosis columns, so a re-diagnosis
+    cannot lose the pixels it was derived from.
+    """
     with session_scope() as db:
         db.add(
             CropImageORM(
@@ -68,6 +79,7 @@ def insert_image(image: CropImage, *, sha256: str, user_id: UUID | None = None) 
                 width=image.width,
                 height=image.height,
                 sha256=sha256,
+                image_bytes=image_bytes,
                 note=image.note,
                 analysis_status=str(image.analysis_status),
                 # `mode="json"` so enums and datetimes inside the diagnosis serialise to
@@ -93,8 +105,10 @@ def update_analysis(image: CropImage) -> None:
     Re-analysing the same photograph replaces the result instead of accumulating rows,
     which is what keeps `GET /crop-images/{id}` single-valued.
 
-    `sha256` is untouched — the bytes did not change, and the digest is what makes the
-    replacement diagnosis identical to the one it replaces.
+    `sha256` and `image_bytes` are untouched — the photograph did not change, and they
+    are what a re-diagnosis is derived from. Assigning only the seven diagnosis columns
+    below is what makes losing them structurally impossible rather than a matter of
+    remembering.
     """
     with session_scope() as db:
         row = db.get(CropImageORM, image.id)
@@ -129,6 +143,19 @@ def get_digest(image_id: UUID) -> str | None:
     """
     with session_scope() as db:
         return db.scalars(select(CropImageORM.sha256).where(CropImageORM.id == image_id)).first()
+
+
+def get_bytes(image_id: UUID) -> bytes | None:
+    """The stored photograph, or None if the image is unknown or kept no pixels.
+
+    A narrow query for the same reason `get_digest` is one: the pixels are internal and
+    can be hundreds of kilobytes, so no caller that only wants the published `CropImage`
+    should be made to load them.
+    """
+    with session_scope() as db:
+        return db.scalars(
+            select(CropImageORM.image_bytes).where(CropImageORM.id == image_id)
+        ).first()
 
 
 def images_for_farm(farm_id: UUID, user_id: UUID | None = None) -> list[CropImage]:

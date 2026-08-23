@@ -1,9 +1,9 @@
 # TerraNex — Architecture
 
 > Status: the contract is complete, published and frozen. Every declared path is
-> implemented, on real providers, a deterministic risk engine, and optional Postgres
-> persistence with Supabase authentication. Gemini reasoning and vision are the main
-> outstanding pieces. Section 9 tracks exactly what is live today.
+> implemented, on real providers, a deterministic risk engine, optional Postgres
+> persistence with Supabase authentication, and Gemini for narrative and crop-image
+> diagnosis. Section 9 tracks exactly what is live today.
 
 ---
 
@@ -232,7 +232,8 @@ what makes the single-branch workflow safe — the contract cannot silently drif
 | Soil profiles — persisted per farm, refetched only after the retention window | **done** |
 | NASA POWER provider | not started |
 | Authentication — Supabase JWT verification, `users`, farm ownership | **done** |
-| Gemini reasoning and vision | not started |
+| Gemini narrative — summary interpreted from computed scores | **done** |
+| Gemini vision — crop-image diagnosis, structured output, one repair retry | **done** |
 
 **`alembic upgrade head` is a required deploy step.** Migrations are not applied at
 boot: `app/main.py` seeds the crop catalog in its lifespan, so a host with
@@ -261,6 +262,21 @@ storage in this phase, so `url` stays null rather than pointing at nothing.
 Deleting a planting sets its images' `farm_crop_id` to null rather than deleting them.
 A diagnosis is evidence, so removing the planting it was attached to costs the
 photograph its crop link, not its existence.
+
+**A crop-image diagnosis says which engine produced it.** With the default
+`AI_PROVIDER=mock` a deterministic simulator answers, seeded from the file's digest,
+and every payload records `ai_mode: "mock"` — it has never looked at an image. With
+`gemini`, the stored photograph is sent to a vision model whose `response_schema` *is*
+`CropImageAnalysis`, and the reply is re-validated before it is stored; invalid output
+earns one repair retry with the errors fed back, then degrades. A model that was
+configured but could not answer yields `ai_mode: "fallback"` with the reason in
+`analysis_error`, so a degraded answer is never mistaken for a real one.
+
+`is_plant_material: false` is a **successful** diagnosis, not a failure — it is the
+honest answer for a photograph that is not a crop, and the guard is enforced in code as
+well as in the prompt: when it is false, every diagnostic field is cleared regardless of
+what the model returned. An image uploaded before pixels were retained has nothing to
+examine, so it falls back rather than having a photograph invented for it.
 
 **Soil is stored per farm; weather deliberately is not.** Soil does not change on any
 timescale this product cares about, so its thirty-day TTL used to live in a

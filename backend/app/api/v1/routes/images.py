@@ -58,7 +58,7 @@ async def upload_crop_image(
         bool, Query(description="Run the diagnosis immediately instead of returning pending.")
     ] = False,
 ) -> CropImage:
-    return image_service.upload_image(
+    return await image_service.upload_image(
         farm_id,
         data=await file.read(),
         content_type=file.content_type,
@@ -88,7 +88,7 @@ async def upload_crop_image(
     },
 )
 async def analyze_crop_image(image_id: ImageId, user: Caller) -> CropImage:
-    return image_service.analyze_image(image_id, user)
+    return await image_service.analyze_image(image_id, user)
 
 
 @router.get(

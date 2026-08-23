@@ -95,6 +95,15 @@ class ImageMetadata:
 
     sha256: str
 
+    #: The downscaled photograph, or None when the pixels were not kept.
+    #:
+    #: Held beside the image for the same reason as the digest: `CropImage` is published
+    #: in the frozen contract and has no field for it. Upload and diagnosis are separate
+    #: requests, so without this the offline path could never re-diagnose an image from
+    #: its pixels — and the two storage paths would answer differently, which is the one
+    #: thing the dual-path design exists to prevent.
+    image_bytes: bytes | None = None
+
 
 @dataclass
 class InMemoryStore:
@@ -224,6 +233,11 @@ class InMemoryStore:
     def image_digest(self, image_id: UUID) -> str | None:
         metadata = self.image_metadata.get(image_id)
         return metadata.sha256 if metadata is not None else None
+
+    def image_bytes(self, image_id: UUID) -> bytes | None:
+        """The stored pixels for an image, or None if they were not kept."""
+        metadata = self.image_metadata.get(image_id)
+        return metadata.image_bytes if metadata is not None else None
 
     def images_for_farm(self, farm_id: UUID) -> list[CropImage]:
         """Newest first."""

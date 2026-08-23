@@ -32,6 +32,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     Uuid,
@@ -101,6 +102,24 @@ class CropImageORM(Base):
     #: uploaded twice — to a second farm, or to record a second observation of the same
     #: leaf — and nothing looks an image up by its digest.
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    #: The photograph itself, downscaled — the only place the pixels survive.
+    #:
+    #: Upload and diagnosis are separate requests, so without this column the bytes are
+    #: gone by the time `POST /crop-images/{id}/analyze` runs and no model could ever be
+    #: shown the image. That is why it exists; nothing serves it to a client, and
+    #: `CropImage.url` stays null because there is still no object storage.
+    #:
+    #: Stored at no more than 1568 px on the long edge, re-encoded as JPEG. That is the
+    #: resolution ceiling a vision model works to, so the reduction costs no diagnostic
+    #: detail while keeping a row in the hundreds of kilobytes rather than the ten
+    #: megabytes `MAX_UPLOAD_MB` permits. `size_bytes`, `width` and `height` continue to
+    #: describe the **original** upload: they report what the user sent, not what was
+    #: kept.
+    #:
+    #: Nullable, because a row written before this column existed has no pixels and must
+    #: stay readable — it simply cannot be re-diagnosed from the image.
+    image_bytes: Mapped[bytes | None] = mapped_column(LargeBinary)
 
     note: Mapped[str | None] = mapped_column(Text)
 
