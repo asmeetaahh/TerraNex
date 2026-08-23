@@ -154,6 +154,12 @@ def _stored_meta(stored: soil_repo.StoredProfile) -> DataSourceMeta:
 
     A profile stored under a configured simulator stays `simulated`: persistence must
     not launder a simulated value into a measurement by re-labelling it on the way out.
+
+    **The note is the provider's own, carried verbatim.** It qualifies the *values* —
+    for SoilGrids, that they are a 250 m model prediction and not a laboratory result —
+    so it stays true however the values reach the caller. This function used to compose
+    a replacement describing storage instead, which dropped that caveat and made the
+    same farm report a different note on the persisted path than on the offline one.
     """
     stored_mode = DataMode(stored.mode)
     simulated = stored_mode is DataMode.simulated
@@ -161,11 +167,7 @@ def _stored_meta(stored: soil_repo.StoredProfile) -> DataSourceMeta:
         source=stored.source,
         mode=stored_mode if simulated else DataMode.cached,
         fetched_at=stored.fetched_at,
-        note=(
-            "Stored simulated soil profile; not a measurement."
-            if simulated
-            else "Stored soil profile; soil is re-fetched only after its retention window."
-        ),
+        note=stored.note,
     )
 
 
@@ -186,6 +188,7 @@ def _remember_profile(
         source=meta.source,
         mode=meta.mode,
         fetched_at=meta.fetched_at,
+        note=meta.note,
     )
 
 

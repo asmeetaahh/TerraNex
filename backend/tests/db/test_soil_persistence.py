@@ -184,6 +184,7 @@ async def test_an_expired_profile_is_refetched(farm) -> None:
         source=stored.source,
         mode=stored.mode,
         fetched_at=stale,
+        note=stored.note,
     )
     clear_all_caches()
 
@@ -203,7 +204,12 @@ async def test_a_refetch_replaces_the_row_rather_than_adding_one(farm) -> None:
     stale = datetime.now(UTC) - timedelta(seconds=settings.CACHE_TTL_SOIL_S + 60)
     stored = soil_repo.get_profile(farm.id)
     soil_repo.upsert_profile(
-        farm.id, stored.observation, source=stored.source, mode=stored.mode, fetched_at=stale
+        farm.id,
+        stored.observation,
+        source=stored.source,
+        mode=stored.mode,
+        fetched_at=stale,
+        note=stored.note,
     )
     clear_all_caches()
     route.mock(return_value=httpx.Response(200, json=SANDY))
@@ -256,7 +262,12 @@ async def test_an_expired_profile_survives_a_provider_failure(farm) -> None:
     stale = datetime.now(UTC) - timedelta(seconds=settings.CACHE_TTL_SOIL_S + 60)
     stored = soil_repo.get_profile(farm.id)
     soil_repo.upsert_profile(
-        farm.id, stored.observation, source=stored.source, mode=stored.mode, fetched_at=stale
+        farm.id,
+        stored.observation,
+        source=stored.source,
+        mode=stored.mode,
+        fetched_at=stale,
+        note=stored.note,
     )
     clear_all_caches()
     route.mock(return_value=httpx.Response(503))
@@ -417,6 +428,129 @@ async def test_analyses_over_a_stored_profile_share_one_run(farm, client, api_pr
 
     assert third["id"] == second["id"], "a stored profile must not move the digest"
     assert analysis_repo.count_runs(UUID(str(farm.id))) == 2
+
+
+# --------------------------------------------------------------------------
+# Provenance notes
+#
+# `DataSourceMeta` has four provenance fields and this table persisted three of them,
+# rebuilding the note on read. The rebuilt note described *storage* rather than the
+# values, so the same farm reported a different qualifier depending on whether a
+# database was configured — and for SoilGrids it dropped "A model, not a laboratory
+# result", the caveat that stops a 250 m prediction being read as a soil test.
+# --------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_the_soilgrids_caveat_survives_persistence(farm) -> None:
+    """The note that matters most, asserted by its content rather than by equality.
+
+    A stored profile that lost this would still *look* right — same pH, same texture,
+    `mode: cached` — while quietly presenting a model's guess as a measurement.
+    """
+    respx.get(SOILGRIDS_URL).mock(return_value=httpx.Response(200, json=LOAM))
+
+    (_, live_meta), _ = await gather(farm)
+    clear_all_caches()
+    store.reset()
+
+    (_, stored_meta), _ = await gather(farm)
+
+    assert stored_meta.note == live_meta.note
+    assert "model, not a laboratory result" in (stored_meta.note or "")
+
+
+@respx.mock
+async def test_the_simulated_note_survives_persistence(farm, monkeypatch) -> None:
+    """The case the three-backend parity probe caught: a simulated profile served from
+    the database must carry the simulator's own qualifier, not one about storage."""
+    monkeypatch.setattr(settings, "SOIL_PROVIDER", "simulated")
+
+    (_, live_meta), _ = await gather(farm)
+    clear_all_caches()
+    store.reset()
+
+    (_, stored_meta), _ = await gather(farm)
+
+    assert stored_meta.note == live_meta.note
+    assert "texture triangle" in (stored_meta.note or "")
+    assert stored_meta.mode is DataMode.simulated, "a simulation stays a simulation"
+
+
+def test_a_null_note_round_trips(sqlite_db) -> None:
+    """A provider may legitimately return no qualifier. `None` must come back as `None`
+    rather than as an empty string or a substituted default."""
+    from app.providers.base import SoilObservation
+
+    seed_crops()
+    seed_demo_farms()
+    record = require_farm(demo_id("farm", "nakuru-maize-field"), demo_user())
+
+    soil_repo.upsert_profile(
+        record.id,
+        SoilObservation(ph=6.0),
+        source=SOILGRIDS_SOURCE,
+        mode=DataMode.live,
+        fetched_at=datetime.now(UTC),
+        note=None,
+    )
+
+    stored = soil_repo.get_profile(record.id)
+
+    assert stored.note is None
+    assert environment_service._stored_meta(stored).note is None
+
+
+def test_the_note_round_trips_verbatim(sqlite_db) -> None:
+    """Stored verbatim, not normalised: whitespace, punctuation and case are the
+    provider's to choose, and a qualifier that has been reworded is a different claim."""
+    from app.providers.base import SoilObservation
+
+    seed_crops()
+    seed_demo_farms()
+    record = require_farm(demo_id("farm", "nakuru-maize-field"), demo_user())
+    original = "ISRIC SoilGrids 250 m prediction for the 0-30 cm interval. A model, not a laboratory result."
+
+    soil_repo.upsert_profile(
+        record.id,
+        SoilObservation(ph=6.0),
+        source=SOILGRIDS_SOURCE,
+        mode=DataMode.live,
+        fetched_at=datetime.now(UTC),
+        note=original,
+    )
+
+    assert soil_repo.get_profile(record.id).note == original
+
+
+@respx.mock
+async def test_every_provenance_field_survives_persistence(farm) -> None:
+    """The structural guard, and the reason it exists.
+
+    `note` was the fourth of four `DataSourceMeta` fields and the only one not
+    persisted, so it was silently reconstructed — the same shape of defect as
+    `water_holding_capacity_mm` being left out of `MEASUREMENTS`. Enumerating the model
+    means a provenance field added later and forgotten here fails immediately.
+
+    `mode` is compared by its stored value rather than the served one: `live` correctly
+    becomes `cached` on the way out, which is the one field persistence is *meant* to
+    change.
+    """
+    respx.get(SOILGRIDS_URL).mock(return_value=httpx.Response(200, json=LOAM))
+
+    (_, live_meta), _ = await gather(farm)
+    clear_all_caches()
+    store.reset()
+
+    stored = soil_repo.get_profile(farm.id)
+
+    assert stored.source == live_meta.source
+    assert stored.mode == str(live_meta.mode)
+    assert stored.fetched_at == live_meta.fetched_at
+    assert stored.note == live_meta.note
+
+    for field in ("source", "mode", "fetched_at", "note"):
+        assert getattr(stored, field) is not None, f"{field} was dropped on the round trip"
 
 
 @respx.mock

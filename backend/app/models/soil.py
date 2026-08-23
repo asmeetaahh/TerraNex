@@ -32,6 +32,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     String,
+    Text,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -99,6 +100,18 @@ class SoilProfileORM(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )
+
+    #: The provider's own qualifier for these values, stored verbatim.
+    #:
+    #: `DataSourceMeta` carries four provenance fields and this table persisted three of
+    #: them, so the note was reconstructed on read — and the reconstruction described
+    #: *storage* ("re-fetched only after its retention window") rather than the data.
+    #: For SoilGrids that silently dropped "A model, not a laboratory result", the one
+    #: caveat that stops a modelled prediction being read as a soil test. Persisting it
+    #: means a stored profile qualifies its values exactly as the live one did.
+    #:
+    #: Nullable because a provider may legitimately return no qualifier.
+    note: Mapped[str | None] = mapped_column(Text)
 
     depth_cm: Mapped[str] = mapped_column(String(20), nullable=False, default="0-30")
 

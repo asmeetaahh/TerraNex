@@ -49,11 +49,15 @@ MEASUREMENTS = (
 class StoredProfile:
     """One farm's stored soil, with the provenance it was fetched under.
 
-    A small class rather than a tuple because the caller needs all four parts and
-    positional unpacking of four values at a call site reads badly.
+    Carries all four `DataSourceMeta` fields — `note` included. Persisting only three
+    and rebuilding the fourth on read is what made a stored profile describe its own
+    storage instead of its values.
+
+    A small class rather than a tuple because the caller needs every part and positional
+    unpacking of five values at a call site reads badly.
     """
 
-    __slots__ = ("observation", "source", "mode", "fetched_at")
+    __slots__ = ("observation", "source", "mode", "fetched_at", "note")
 
     def __init__(
         self,
@@ -61,11 +65,13 @@ class StoredProfile:
         source: str,
         mode: str,
         fetched_at: datetime,
+        note: str | None = None,
     ) -> None:
         self.observation = observation
         self.source = source
         self.mode = mode
         self.fetched_at = fetched_at
+        self.note = note
 
     def is_fresh(self, now: datetime, ttl_seconds: int) -> bool:
         """Whether this profile may still be served without asking the provider.
@@ -105,6 +111,7 @@ def get_profile(farm_id: UUID) -> StoredProfile | None:
             # Normalised on read: SQLite hands back a naive datetime, so comparing it
             # against an aware `now` for freshness would raise rather than expire.
             fetched_at=as_utc(row.fetched_at),
+            note=row.note,
         )
 
 
@@ -115,6 +122,7 @@ def upsert_profile(
     source: str,
     mode: DataMode | str,
     fetched_at: datetime,
+    note: str | None = None,
     depth_cm: str = "0-30",
 ) -> None:
     """Store or replace a farm's soil profile.
@@ -122,6 +130,9 @@ def upsert_profile(
     `fetched_at` is passed in rather than defaulted to now, because it is the moment the
     *provider* answered. Stamping the write time would make every profile permanently
     fresh and nothing would ever expire.
+
+    `note` is stored verbatim for the same reason the other three provenance fields are:
+    a served profile must qualify its values the way the provider qualified them.
     """
     values = {name: getattr(observation, name) for name in MEASUREMENTS}
     texture = observation.texture_class
@@ -140,6 +151,7 @@ def upsert_profile(
         row.source = str(source)
         row.mode = str(mode)
         row.fetched_at = fetched_at
+        row.note = note
         row.depth_cm = depth_cm
         row.raw = _raw_payload(observation)
         row.updated_at = now
