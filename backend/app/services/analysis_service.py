@@ -398,14 +398,32 @@ def _advisories(
     ]
 
 
+#: What "no limit" means when ranking during an analysis.
+#:
+#: The engine ranks every candidate and slices last, so an unreachable ceiling stores the
+#: complete ordering without changing a single score or rank. It is a sentinel rather
+#: than `None` because the engine's signature takes an `int`, and this module has no
+#: business widening the engine's contract to express "all of them".
+RANK_EVERYTHING = 1_000_000
+
+
 def _crop_recommendations(
     env: EnvironmentSnapshot,
     record: FarmRecord,
     crop: Crop | None,
     stage: GrowthStage,
-    limit: int = 5,
+    limit: int = RANK_EVERYTHING,
 ) -> list[CropRecommendation]:
-    """Crop suitability, delegated to the deterministic engine."""
+    """Crop suitability, delegated to the deterministic engine.
+
+    **The whole ranking is stored, not the first five.** The endpoints are projections of
+    the stored run, so a ranking truncated here is a ceiling the API can never see past:
+    the contract advertises `limit` up to 25 while an analysis had committed to 5, and a
+    client asking for 10 got 5 with nothing to say why.
+
+    Storing every ranked crop costs payload size and buys contract conformance plus an
+    honest `total`. Ordering is unaffected — the engine sorts before it slices.
+    """
     context = build_context(record, env, crop, stage)
     return [
         _to_crop_recommendation(suggestion)
@@ -424,6 +442,14 @@ def _to_crop_recommendation(suggestion: CropSuggestion) -> CropRecommendation:
         rank=suggestion.rank,
         is_current_crop=suggestion.is_current_crop,
         water_requirement_mm=suggestion.water_requirement_mm,
+        # Null, and deliberately so. The crop catalog carries fifteen agronomic fields
+        # and not one of them is a yield: no t/ha, no yield potential, no historical
+        # record. Anything written here would have to be derived from `gdd_to_maturity`
+        # or `water_need_mm_season`, neither of which determines yield — that depends on
+        # variety, management, fertility and season, none of which TerraNex holds.
+        #
+        # A plausible-looking figure is worse than an absent one, because a farmer would
+        # plan against it. It stays null until the catalog carries real yield data.
         expected_yield_note=None,
         planting_window=suggestion.planting_window,
         strengths=list(suggestion.strengths),
@@ -442,9 +468,12 @@ def _regenerative_recommendations(
     water: WaterAssessment,
     disease: DiseaseAssessment,
     weather: WeatherAssessment,
-    limit: int = 5,
+    limit: int = RANK_EVERYTHING,
 ) -> list[RegenerativeRecommendation]:
-    """Regenerative practices, delegated to the deterministic engine."""
+    """Regenerative practices, delegated to the deterministic engine.
+
+    Stores the full ranking for the same reason as `_crop_recommendations`.
+    """
     context = build_context(record, env, crop, stage)
     return [
         _to_regenerative_recommendation(suggestion)
@@ -954,12 +983,20 @@ def advisories(
 
 
 def crop_recommendations(farm_id: UUID, *, limit: int, user: CurrentUser) -> CropRecommendationList:
-    items = latest_analysis(farm_id, user).crop_recommendations[:limit]
-    return paginate(CropRecommendationList, items, 1, max(limit, 1))
+    """The top `limit` ranked crops, with `total` reporting the whole ranking.
+
+    `paginate` receives the full list and does the slicing, so `total` is the number of
+    crops that were ranked rather than the number handed back on this page. Truncating
+    first — as this did — made `total` and `page_size` agree at every limit, which told a
+    client there was nothing more to ask for however few it had requested.
+    """
+    items = latest_analysis(farm_id, user).crop_recommendations
+    return paginate(CropRecommendationList, list(items), 1, max(limit, 1))
 
 
 def regenerative_recommendations(
     farm_id: UUID, *, limit: int, user: CurrentUser
 ) -> RegenerativeRecommendationList:
-    items = latest_analysis(farm_id, user).regenerative_recommendations[:limit]
-    return paginate(RegenerativeRecommendationList, items, 1, max(limit, 1))
+    """The top `limit` ranked practices, with `total` reporting the whole ranking."""
+    items = latest_analysis(farm_id, user).regenerative_recommendations
+    return paginate(RegenerativeRecommendationList, list(items), 1, max(limit, 1))
