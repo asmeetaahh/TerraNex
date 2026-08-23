@@ -21,6 +21,13 @@ from dataclasses import dataclass, field
 
 from app.engine.context import AnalysisContext
 from app.engine.disease import DiseaseAssessment
+from app.engine.reasons import (
+    WATER_IRRIGATION_DEFICIT,
+    WEATHER_COLD_THRESHOLD_EXCEEDED,
+    WEATHER_HEAT_THRESHOLD_EXCEEDED,
+    ParamValue,
+    Reason,
+)
 from app.engine.scoring import band_for, clamp, risk_level_for
 from app.engine.soil import SoilAssessmentResult
 from app.engine.vegetation import VegetationAssessment
@@ -99,6 +106,15 @@ class AdvisoryDraft:
     rationale: str
     action_window: str | None
     confidence: float
+
+    #: The numbers the prose above was formatted from, kept as data.
+    #:
+    #: Populated only where the evidence reaches no published field: irrigation, heat and
+    #: cold. A disease advisory cites the rule that `disease_risk.risks[].reasons` already
+    #: publishes, and a soil advisory cites `limitations`/`score`/`band` on
+    #: `soil_assessment` — restating either here would duplicate facts rather than
+    #: recover them, and give the two copies a chance to disagree.
+    reasons: tuple[Reason, ...] = ()
 
 
 # --------------------------------------------------------------------------
@@ -251,6 +267,17 @@ def _priority_for(score: float) -> AdvisoryPriority:
     return AdvisoryPriority.medium
 
 
+def _params(**values: ParamValue) -> dict[str, ParamValue]:
+    """Drop absent values rather than publishing them as null.
+
+    `null` reads as *measured, and unbounded* — a rainfed farm has no application
+    efficiency at all, which is a different statement from one whose efficiency is
+    unknown. Omitting keeps the two apart, and matches how the disease codes already
+    handle a rule clause that carries no bound.
+    """
+    return {name: value for name, value in values.items() if value is not None}
+
+
 def _irrigation_advisory(water: WaterAssessment) -> AdvisoryDraft | None:
     """Advise irrigation only when a balance was actually computed.
 
@@ -292,6 +319,24 @@ def _irrigation_advisory(water: WaterAssessment) -> AdvisoryDraft | None:
             "within 48 hours" if water.score >= HIGH_RISK_SCORE else "within the next week"
         ),
         confidence=0.75,
+        reasons=(
+            Reason(
+                key=WATER_IRRIGATION_DEFICIT,
+                # Read straight off the assessment, unrounded. The prose rounds for
+                # readability; a consumer formatting for its own locale should start
+                # from the value the engine computed, not from a rounded copy.
+                params=_params(
+                    applied_irrigation_mm=water.applied_irrigation_mm,
+                    depletion_mm=water.depletion_mm,
+                    taw_mm=water.taw_mm,
+                    raw_mm=water.raw_mm,
+                    # Absent for a rainfed farm, which has no application efficiency
+                    # rather than an unknown one.
+                    application_efficiency=efficiency,
+                    parameters_source=water.parameters_source,
+                ),
+            ),
+        ),
     )
 
 
@@ -355,6 +400,16 @@ def _heat_advisory(weather: WeatherAssessment) -> AdvisoryDraft | None:
         ),
         action_window="this week",
         confidence=0.68,
+        reasons=(
+            Reason(
+                key=WEATHER_HEAT_THRESHOLD_EXCEEDED,
+                params=_params(
+                    heat_stress_days=weather.heat_stress_days,
+                    heat_threshold_c=weather.heat_threshold_c,
+                    thresholds_source=weather.thresholds_source,
+                ),
+            ),
+        ),
     )
 
 
@@ -385,6 +440,16 @@ def _frost_advisory(weather: WeatherAssessment) -> AdvisoryDraft | None:
         ),
         action_window="within 48 hours",
         confidence=0.72,
+        reasons=(
+            Reason(
+                key=WEATHER_COLD_THRESHOLD_EXCEEDED,
+                params=_params(
+                    frost_risk_days=weather.frost_risk_days,
+                    cold_threshold_c=weather.cold_threshold_c,
+                    thresholds_source=weather.thresholds_source,
+                ),
+            ),
+        ),
     )
 
 

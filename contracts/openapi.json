@@ -93,6 +93,14 @@
             "title": "Rationale",
             "type": "string"
           },
+          "reasons": {
+            "description": "The numbers `title`, `body` and `rationale` were formatted from, as data \u2014 so a client can restate this advisory in any language. Present only where the evidence reaches no other field: irrigation depth and the heat and cold thresholds. A disease advisory's evidence is on `disease_risk.risks[].reasons`, and a soil advisory's on `soil_assessment`, so neither is repeated here.",
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
           "title": {
             "examples": [
               "Irrigate within 48 hours"

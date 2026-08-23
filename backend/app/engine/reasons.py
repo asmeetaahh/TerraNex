@@ -73,3 +73,37 @@ DISEASE_CONDITION_KEYS: Final[dict[str, str]] = {
     "total_hours": DISEASE_TOTAL_HOURS_MET,
     "growth_stage_at_least": DISEASE_GROWTH_STAGE_MET,
 }
+
+
+# --------------------------------------------------------------------------
+# Advisories
+#
+# Only where the evidence is otherwise lost. A disease advisory cites the same rule the
+# disease section already publishes under `risks[].reasons`, and a soil advisory cites
+# `limitations`, `score` and `band`, all published on `soil_assessment` — so a key for
+# either would emit the same facts twice and give them two chances to disagree.
+#
+# These three cite numbers that reach no published field at all.
+# --------------------------------------------------------------------------
+
+WATER_IRRIGATION_DEFICIT: Final = "water.irrigation_deficit"
+"""The root zone drew past its readily-available threshold, so a depth was advised.
+
+`water_risk` publishes `deficit_mm` and `recommended_irrigation_mm`, but not the FAO-56
+reservoir the advice was computed against — the depletion tracked, the total available
+water, the readily-available fraction, or the efficiency the depth was grossed up by.
+"""
+
+WEATHER_HEAT_THRESHOLD_EXCEEDED: Final = "weather.heat_threshold_exceeded"
+"""Forecast days above the heat threshold the engine actually applied.
+
+`heat_stress_days` is published; the threshold it was counted against is not, so the
+count cannot be restated as a temperature in any language without it.
+"""
+
+WEATHER_COLD_THRESHOLD_EXCEEDED: Final = "weather.cold_threshold_exceeded"
+"""Forecast days below the crop's cold-damage threshold.
+
+Distinct from the heat key even though both advisories carry `category: "weather"` —
+which is why a consumer cannot currently tell the two apart.
+"""

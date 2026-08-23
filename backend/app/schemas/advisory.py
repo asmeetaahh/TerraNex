@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import PaginatedResponse
+from app.schemas.common import PaginatedResponse, ReasonCode
 from app.schemas.enums import AdvisoryCategory, AdvisoryPriority
 
 
@@ -35,6 +35,18 @@ class Advisory(BaseModel):
         default=None, description="When to act.", examples=["within 48 hours"]
     )
     confidence: float = Field(ge=0, le=1)
+
+    reasons: list[ReasonCode] = Field(
+        default_factory=list,
+        description=(
+            "The numbers `title`, `body` and `rationale` were formatted from, as data — "
+            "so a client can restate this advisory in any language. Present only where "
+            "the evidence reaches no other field: irrigation depth and the heat and cold "
+            "thresholds. A disease advisory's evidence is on "
+            "`disease_risk.risks[].reasons`, and a soil advisory's on `soil_assessment`, "
+            "so neither is repeated here."
+        ),
+    )
 
     created_at: datetime
     dismissed_at: datetime | None = None

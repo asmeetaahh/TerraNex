@@ -397,6 +397,11 @@ def _advisories(
             rationale=draft.rationale,
             action_window=draft.action_window,
             confidence=draft.confidence,
+            # Carried verbatim. The engine decided what the evidence is; this boundary
+            # changes its shape, never its content.
+            reasons=[
+                ReasonCode(key=reason.key, params=dict(reason.params)) for reason in draft.reasons
+            ],
             created_at=created_at,
             dismissed_at=None,
         )
