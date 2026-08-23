@@ -91,6 +91,37 @@ class ScoredFactor(BaseModel):
     explanation: str = Field(description="Why this factor scored as it did.")
 
 
+class ReasonCode(BaseModel):
+    """Machine-readable evidence behind a computed finding.
+
+    Every prose field in this contract is assembled from numbers the engine holds and
+    then discards, which leaves a client two bad options: parse the sentence, or
+    re-derive the agronomy. An assistant answering in Hindi or Arabic can do neither
+    honestly.
+
+    `key` names which condition was met, from a stable vocabulary; `params` carries the
+    values that met it. A client maps the key to a phrase in its own language and
+    interpolates — translation over data, not over generated sentences.
+
+    A reason never states more than its prose sibling already does. It is the same
+    evidence in a different form, so the two cannot disagree without one being wrong.
+
+    **Keys are a public vocabulary.** Once a client binds `disease.consecutive_hours_met`
+    to a translated phrase, renaming it breaks that translation in every language. Add
+    freely; rename never.
+    """
+
+    key: str = Field(
+        description="Stable dotted key, `domain.condition`.",
+        examples=["disease.consecutive_hours_met"],
+    )
+    params: dict[str, float | int | str | None] = Field(
+        default_factory=dict,
+        description="Values that satisfied the condition. Scalars only.",
+        examples=[{"rule_id": "late_blight", "matched_hours": 20, "required_hours": 10}],
+    )
+
+
 class PaginatedResponse[T](BaseModel):
     """The single collection shape used by every list endpoint.
 

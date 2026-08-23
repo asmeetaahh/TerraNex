@@ -1580,6 +1580,14 @@
             "title": "Probability",
             "type": "number"
           },
+          "reasons": {
+            "description": "The same evidence as `triggering_conditions`, as data rather than prose \u2014 one entry per matched rule clause. Lets a client state why this pathogen was flagged in any language. Empty when no rule matched.",
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
           "scouting_advice": {
             "anyOf": [
               {
@@ -3006,6 +3014,52 @@
           "dependencies"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "ReasonCode": {
+        "description": "Machine-readable evidence behind a computed finding.\n\nEvery prose field in this contract is assembled from numbers the engine holds and\nthen discards, which leaves a client two bad options: parse the sentence, or\nre-derive the agronomy. An assistant answering in Hindi or Arabic can do neither\nhonestly.\n\n`key` names which condition was met, from a stable vocabulary; `params` carries the\nvalues that met it. A client maps the key to a phrase in its own language and\ninterpolates \u2014 translation over data, not over generated sentences.\n\nA reason never states more than its prose sibling already does. It is the same\nevidence in a different form, so the two cannot disagree without one being wrong.\n\n**Keys are a public vocabulary.** Once a client binds `disease.consecutive_hours_met`\nto a translated phrase, renaming it breaks that translation in every language. Add\nfreely; rename never.",
+        "properties": {
+          "key": {
+            "description": "Stable dotted key, `domain.condition`.",
+            "examples": [
+              "disease.consecutive_hours_met"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Values that satisfied the condition. Scalars only.",
+            "examples": [
+              {
+                "matched_hours": 20,
+                "required_hours": 10,
+                "rule_id": "late_blight"
+              }
+            ],
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ReasonCode",
         "type": "object"
       },
       "RegenerativeRecommendation": {

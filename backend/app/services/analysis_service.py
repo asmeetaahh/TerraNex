@@ -56,7 +56,7 @@ from app.schemas.analysis import (
     AnalysisRunSummary,
     FarmDashboard,
 )
-from app.schemas.common import DataMode, DataSourceMeta, ScoreBand, ScoredFactor
+from app.schemas.common import DataMode, DataSourceMeta, ReasonCode, ScoreBand, ScoredFactor
 from app.schemas.crop import Crop
 from app.schemas.enums import (
     AdvisoryCategory,
@@ -288,6 +288,12 @@ def _to_disease_risk(assessment: DiseaseAssessment) -> DiseaseRisk:
                 triggering_conditions=list(item.triggering_conditions),
                 preventive_actions=list(item.preventive_actions),
                 scouting_advice=item.scouting_advice,
+                # Carried across verbatim. The engine already decided what the evidence
+                # is; this boundary changes its shape, never its content.
+                reasons=[
+                    ReasonCode(key=reason.key, params=dict(reason.params))
+                    for reason in item.reasons
+                ],
             )
             for item in assessment.items
         ],

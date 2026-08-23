@@ -7,7 +7,7 @@ separation is what makes the scores reproducible and unit-testable.
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import RiskLevel, ScoredFactor
+from app.schemas.common import ReasonCode, RiskLevel, ScoredFactor
 
 
 class WeatherRisk(BaseModel):
@@ -104,6 +104,15 @@ class DiseaseRiskItem(BaseModel):
     )
     preventive_actions: list[str] = Field(default_factory=list)
     scouting_advice: str | None = None
+
+    reasons: list[ReasonCode] = Field(
+        default_factory=list,
+        description=(
+            "The same evidence as `triggering_conditions`, as data rather than prose — "
+            "one entry per matched rule clause. Lets a client state why this pathogen "
+            "was flagged in any language. Empty when no rule matched."
+        ),
+    )
 
 
 class DiseaseRisk(BaseModel):

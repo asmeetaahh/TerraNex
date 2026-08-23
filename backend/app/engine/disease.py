@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from app.engine.context import AnalysisContext, DiseaseRule, HourlyPoint, RuleCondition
+from app.engine.reasons import DISEASE_CONDITION_KEYS, Reason
 from app.engine.scoring import INSUFFICIENT, factor, risk_level_for, unknown_factor
 from app.schemas.common import RiskLevel, ScoredFactor
 
@@ -69,6 +70,13 @@ class DiseaseItem:
     triggering_conditions: tuple[str, ...]
     preventive_actions: tuple[str, ...]
     scouting_advice: str | None
+
+    #: The same evidence as `triggering_conditions`, as data rather than sentences.
+    #:
+    #: One reason per matched clause, carrying the numbers the sentence was built from —
+    #: nothing derived, nothing new. It exists so a consumer can state *why* in a
+    #: language this module does not speak.
+    reasons: tuple[Reason, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +190,56 @@ def _describe(condition: RuleCondition, measured: int) -> str:
     return f"{measured} hours at {window}"
 
 
+def _rule_reasons(
+    rule: DiseaseRule, matched_hours: int, growth_stage: str | None
+) -> tuple[Reason, ...]:
+    """The matched rule's clauses, as structured evidence.
+
+    Called only after `match_rule` returned True, so every clause of this conjunction is
+    known to have been satisfied — which is why each one becomes a reason without being
+    re-tested here. Re-testing would be a second implementation of the same agronomy and
+    a chance for the two to disagree.
+
+    Every value comes from the rule or from the hours the matcher already counted.
+    Nothing is derived: a reason states what the engine found, never more.
+    """
+    reasons: list[Reason] = []
+
+    for condition in rule.conditions:
+        key = DISEASE_CONDITION_KEYS.get(condition.type)
+        if key is None:
+            # An unrecognised clause type yields no reason rather than a fabricated key.
+            # A consumer can translate a key it knows; it can do nothing with a guess.
+            continue
+
+        params: dict[str, float | int | str | None] = {
+            "rule_id": rule.id,
+            "pathogen": rule.pathogen,
+        }
+
+        if condition.type == "growth_stage_at_least":
+            params["required_stage"] = condition.stage
+            params["growth_stage"] = growth_stage
+        else:
+            params["matched_hours"] = matched_hours
+            params["required_hours"] = condition.hours
+            params["threshold_hours"] = rule.threshold_hours
+            params["saturation_hours"] = rule.saturation_hours
+            if condition.temp_c is not None:
+                params["temp_min_c"] = condition.temp_c.low
+                params["temp_max_c"] = condition.temp_c.high
+            if condition.humidity_pct is not None:
+                params["humidity_min_pct"] = condition.humidity_pct.low
+                params["humidity_max_pct"] = condition.humidity_pct.high
+            if condition.precipitation_mm is not None:
+                params["precipitation_min_mm"] = condition.precipitation_mm.low
+                params["precipitation_max_mm"] = condition.precipitation_mm.high
+
+        reasons.append(Reason(key=key, params=params))
+
+    return tuple(reasons)
+
+
 def match_rule(
     rule: DiseaseRule, hourly: Sequence[HourlyPoint], growth_stage: str | None
 ) -> tuple[bool, int, tuple[str, ...]]:
@@ -290,6 +348,7 @@ def evaluate(context: AnalysisContext) -> DiseaseAssessment:
                 triggering_conditions=conditions,
                 preventive_actions=rule.preventive_actions,
                 scouting_advice=rule.scouting_advice,
+                reasons=_rule_reasons(rule, driving_hours, context.growth_stage),
             )
         )
 
