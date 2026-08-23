@@ -1,60 +1,117 @@
-import { Info } from 'lucide-react'
+import { CircleX } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { components } from '../api/types.gen'
-import { previewCropImage } from '../data/previewFixtures'
+import { ApiError } from '../api/client'
+import { analyzeCropImage, uploadCropImage, type CropImage } from '../api/cropImages'
+import { useFarmDashboard } from '../hooks/useFarmDashboard'
 import { UploadCard } from '../components/diagnosis/UploadCard'
 import { ImagePreviewCard } from '../components/diagnosis/ImagePreviewCard'
 import { DiagnosisResultCard } from '../components/diagnosis/DiagnosisResultCard'
 
-type CropImage = components['schemas']['CropImage']
-
 type Phase = 'upload' | 'selected' | 'analyzing' | 'result'
 
-const ANALYZE_DELAY_MS = 1400
+/**
+ * Turns a failure into something a grower can act on. Branches on `code`, never
+ * on message text — the codes are the contract, the messages are not.
+ */
+function messageFor(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 'IMAGE_TOO_LARGE':
+        return 'The server rejected that image as too large. Try a smaller photo.'
+      case 'UNSUPPORTED_MEDIA_TYPE':
+        return 'That file type isn’t supported. Upload a JPG, PNG, or WebP image.'
+      case 'AI_UNAVAILABLE':
+        return 'The diagnosis service is unavailable right now. Try again in a moment.'
+      case 'ANALYSIS_IN_PROGRESS':
+        return 'This photo is already being analysed. Give it a few seconds and try again.'
+      case 'FARM_NOT_FOUND':
+        return 'That farm is no longer available. Reload the page and pick another.'
+      default:
+        return error.message
+    }
+  }
+  if (error instanceof Error) return error.message
+  return 'Something went wrong running the diagnosis.'
+}
 
 export function DiagnosisPage() {
+  const { mode, selectedFarmId } = useFarmDashboard()
+
   const [phase, setPhase] = useState<Phase>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [result, setResult] = useState<CropImage | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Bumped whenever the user picks a new photo, retries, or resets, so a reply
+  // from an abandoned upload/analyze pair can never overwrite the current view.
+  const runRef = useRef(0)
 
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl)
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
   }, [previewUrl])
 
   function handleFileAccepted(selected: File) {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
+    runRef.current += 1
     setFile(selected)
     setPreviewUrl(URL.createObjectURL(selected))
     setResult(null)
+    setError(null)
     setPhase('selected')
   }
 
-  function handleAnalyze() {
+  /**
+   * The real flow: upload the file, then diagnose the stored image. Failure
+   * returns to `selected` with the photo still on screen, so the same button
+   * retries the same file — no sample result is ever substituted.
+   */
+  async function handleAnalyze() {
     if (!file) return
+
+    if (!selectedFarmId) {
+      setError(
+        mode === 'loading'
+          ? 'Still loading your farms — try again in a moment.'
+          : 'Crop photos are stored against a farm, and none is selected. Add a farm first.',
+      )
+      return
+    }
+
+    const run = (runRef.current += 1)
+    setError(null)
     setPhase('analyzing')
-    timeoutRef.current = setTimeout(() => {
-      setResult({
-        ...previewCropImage,
-        uploaded_at: new Date().toISOString(),
-        content_type: file.type,
-        size_bytes: file.size,
-        note: file.name,
-      })
+
+    try {
+      const uploaded = await uploadCropImage(selectedFarmId, file)
+      const diagnosed = await analyzeCropImage(uploaded.id)
+
+      if (run !== runRef.current) return
+
+      if (!diagnosed.analysis) {
+        setError(diagnosed.analysis_error ?? 'The diagnosis came back empty. Try again.')
+        setPhase('selected')
+        return
+      }
+
+      setResult(diagnosed)
       setPhase('result')
-    }, ANALYZE_DELAY_MS)
+    } catch (failure: unknown) {
+      if (run !== runRef.current) return
+      setError(messageFor(failure))
+      setPhase('selected')
+    }
   }
 
   function handleReset() {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    runRef.current += 1
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setFile(null)
     setPreviewUrl(null)
     setResult(null)
+    setError(null)
     setPhase('upload')
   }
 
@@ -67,14 +124,17 @@ export function DiagnosisPage() {
         </p>
       </header>
 
-      <div className="flex items-start gap-3 rounded-xl border border-[color:var(--color-mode-simulated)]/25 bg-[color:var(--color-mode-simulated)]/[0.06] px-4 py-3">
-        <Info size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-[color:var(--color-mode-simulated)]" />
-        <p className="text-sm text-[color:var(--color-ink-muted)]">
-          <span className="font-medium text-[color:var(--color-ink)]">Preview flow.</span> Image upload and analysis
-          aren't wired up to the backend yet — this shows the full diagnosis experience using sample results so the
-          flow can be reviewed before integration.
-        </p>
-      </div>
+      {error && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-xl border border-[color:var(--color-status-critical)]/25 bg-[color:var(--color-status-critical)]/[0.06] px-4 py-3"
+        >
+          <CircleX size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-[color:var(--color-status-critical)]" />
+          <p className="text-sm text-[color:var(--color-ink-muted)]">
+            <span className="font-medium text-[color:var(--color-ink)]">Diagnosis failed.</span> {error}
+          </p>
+        </div>
+      )}
 
       {phase === 'upload' && <UploadCard onFileAccepted={handleFileAccepted} />}
 
