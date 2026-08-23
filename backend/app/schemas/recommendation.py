@@ -7,7 +7,7 @@ The ordering a user sees is reproducible; only the prose varies.
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import PaginatedResponse, ScoredFactor
+from app.schemas.common import PaginatedResponse, ReasonCode, ScoredFactor
 from app.schemas.enums import CropCategory, Season
 
 
@@ -35,6 +35,16 @@ class CropRecommendation(BaseModel):
     considerations: list[str] = Field(default_factory=list)
     factors: list[ScoredFactor] = Field(default_factory=list)
     rationale: str = Field(description="Narrative over the computed suitability.")
+
+    reasons: list[ReasonCode] = Field(
+        default_factory=list,
+        description=(
+            "The numbers `strengths` and `considerations` were formatted from, as data — "
+            "one per assessed component, so a client can state why this crop suits the "
+            "site in any language. Empty for a component that could not be assessed; "
+            "`factors` already reports which evidence was missing."
+        ),
+    )
 
 
 class CropRecommendationList(PaginatedResponse[CropRecommendation]):

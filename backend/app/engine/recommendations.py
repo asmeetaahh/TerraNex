@@ -33,6 +33,18 @@ from typing import Any
 
 from app.engine.context import AnalysisContext, CropParameters, DailyPoint, SoilPoint
 from app.engine.disease import DiseaseAssessment
+from app.engine.reasons import (
+    CROP_PH_OUTSIDE_RANGE,
+    CROP_PH_WITHIN_RANGE,
+    CROP_TEMPERATURE_OPTIMAL,
+    CROP_TEMPERATURE_OUTSIDE,
+    CROP_TEXTURE_MATCH,
+    CROP_TEXTURE_MISMATCH,
+    CROP_WATER_SHORTFALL,
+    CROP_WATER_SUFFICIENT,
+    ParamValue,
+    Reason,
+)
 from app.engine.scoring import INSUFFICIENT, clamp, factor, unknown_factor
 from app.engine.soil import SoilAssessmentResult
 from app.engine.water import WaterAssessment
@@ -92,6 +104,13 @@ class CropSuggestion:
     factors: tuple[ScoredFactor, ...]
     rationale: str
 
+    #: The numbers `strengths` and `considerations` were formatted from, as data.
+    #:
+    #: One per assessed component, so a consumer can state why this crop suits the site
+    #: in a language this module does not speak. Empty for a component that could not be
+    #: assessed — `factors` already reports that.
+    reasons: tuple[Reason, ...] = ()
+
 
 @dataclass(frozen=True, slots=True)
 class SiteConditions:
@@ -140,24 +159,55 @@ def site_conditions(context: AnalysisContext) -> SiteConditions:
     )
 
 
+def _params(**values: ParamValue) -> dict[str, ParamValue]:
+    """Drop absent values rather than publishing them as null.
+
+    The same convention the disease and advisory codes use: `null` reads as *measured,
+    and unbounded*, which is a different claim from *not part of this comparison*.
+    """
+    return {name: value for name, value in values.items() if value is not None}
+
+
+#: A component that could not be assessed emits no reason.
+#:
+#: `unknown_factor` already says the evidence was missing, and a reason whose params are
+#: all absent would state nothing while looking like a finding.
+NO_REASONS: tuple[Reason, ...] = ()
+
+
 def _ph_component(
     crop: CropParameters, site: SiteConditions
-) -> tuple[ScoredFactor, list[str], list[str]]:
+) -> tuple[ScoredFactor, list[str], list[str], tuple[Reason, ...]]:
     strengths: list[str] = []
     considerations: list[str] = []
 
     if site.soil_ph is None:
-        return unknown_factor("ph_match", "pH match", ["soil pH"]), strengths, considerations
+        return (
+            unknown_factor("ph_match", "pH match", ["soil pH"]),
+            strengths,
+            considerations,
+            NO_REASONS,
+        )
     if crop.ph_min is None or crop.ph_max is None:
         return (
             unknown_factor("ph_match", "pH match", ["this crop's tolerated pH range"]),
             strengths,
             considerations,
+            NO_REASONS,
         )
+
+    # The three values every branch below cites. They are formatted into the prose and
+    # then discarded, and none of them reaches any other published field.
+    params = _params(
+        site_ph=site.soil_ph,
+        crop_ph_min=crop.ph_min,
+        crop_ph_max=crop.ph_max,
+    )
 
     if crop.ph_min <= site.soil_ph <= crop.ph_max:
         score = IDEAL_MATCH_SCORE
         strengths.append(f"Tolerates the farm's pH of {site.soil_ph:g}")
+        reasons = (Reason(key=CROP_PH_WITHIN_RANGE, params=params),)
     else:
         distance = min(abs(site.soil_ph - crop.ph_min), abs(site.soil_ph - crop.ph_max))
         score = clamp(
@@ -168,17 +218,19 @@ def _ph_component(
         considerations.append(
             f"Prefers pH {crop.ph_min:g}-{crop.ph_max:g}; farm reads {site.soil_ph:g}"
         )
+        reasons = (Reason(key=CROP_PH_OUTSIDE_RANGE, params=params),)
 
     return (
         factor("ph_match", "pH match", score, WEIGHT_PH, f"Soil pH {site.soil_ph:g}."),
         strengths,
         considerations,
+        reasons,
     )
 
 
 def _temperature_component(
     crop: CropParameters, site: SiteConditions
-) -> tuple[ScoredFactor, list[str], list[str]]:
+) -> tuple[ScoredFactor, list[str], list[str], tuple[Reason, ...]]:
     strengths: list[str] = []
     considerations: list[str] = []
 
@@ -187,6 +239,7 @@ def _temperature_component(
             unknown_factor("temperature_match", "Temperature match", ["mean temperature"]),
             strengths,
             considerations,
+            NO_REASONS,
         )
     if crop.optimal_temp_min_c is None or crop.optimal_temp_max_c is None:
         return (
@@ -195,11 +248,19 @@ def _temperature_component(
             ),
             strengths,
             considerations,
+            NO_REASONS,
         )
+
+    params = _params(
+        site_mean_temp_c=site.mean_temp_c,
+        crop_optimal_min_c=crop.optimal_temp_min_c,
+        crop_optimal_max_c=crop.optimal_temp_max_c,
+    )
 
     if crop.optimal_temp_min_c <= site.mean_temp_c <= crop.optimal_temp_max_c:
         score = IDEAL_MATCH_SCORE
         strengths.append(f"Mean temperature of {site.mean_temp_c:.0f} °C is in its optimal band")
+        reasons = (Reason(key=CROP_TEMPERATURE_OPTIMAL, params=params),)
     else:
         distance = min(
             abs(site.mean_temp_c - crop.optimal_temp_min_c),
@@ -213,6 +274,7 @@ def _temperature_component(
         considerations.append(
             f"Optimal range is {crop.optimal_temp_min_c:.0f}-{crop.optimal_temp_max_c:.0f} °C"
         )
+        reasons = (Reason(key=CROP_TEMPERATURE_OUTSIDE, params=params),)
 
     return (
         factor(
@@ -224,12 +286,13 @@ def _temperature_component(
         ),
         strengths,
         considerations,
+        reasons,
     )
 
 
 def _texture_component(
     crop: CropParameters, site: SiteConditions
-) -> tuple[ScoredFactor, list[str], list[str]]:
+) -> tuple[ScoredFactor, list[str], list[str], tuple[Reason, ...]]:
     strengths: list[str] = []
     considerations: list[str] = []
 
@@ -238,33 +301,47 @@ def _texture_component(
             unknown_factor("texture_match", "Texture match", ["soil texture"]),
             strengths,
             considerations,
+            NO_REASONS,
         )
     if not crop.preferred_textures:
         return (
             unknown_factor("texture_match", "Texture match", ["this crop's texture preferences"]),
             strengths,
             considerations,
+            NO_REASONS,
         )
+
+    # The crop's preferences are a tuple, and `ReasonCode.params` admits scalars only —
+    # so they travel as a comma-joined list of the machine codes. Joining the codes
+    # rather than the display strings keeps the value translatable: a consumer maps each
+    # code to its own word for that texture.
+    params = _params(
+        site_texture_class=site.texture_class,
+        crop_preferred_textures=",".join(crop.preferred_textures),
+    )
 
     readable = site.texture_class.replace("_", " ")
     if site.texture_class in crop.preferred_textures:
         score = TEXTURE_MATCH_SCORE
         strengths.append(f"Suits {readable} soils")
+        reasons = (Reason(key=CROP_TEXTURE_MATCH, params=params),)
     else:
         score = TEXTURE_MISMATCH_SCORE
         preferred = ", ".join(t.replace("_", " ") for t in list(crop.preferred_textures)[:2])
         considerations.append(f"Prefers {preferred}")
+        reasons = (Reason(key=CROP_TEXTURE_MISMATCH, params=params),)
 
     return (
         factor("texture_match", "Texture match", score, WEIGHT_TEXTURE, f"{readable} soil."),
         strengths,
         considerations,
+        reasons,
     )
 
 
 def _water_component(
     crop: CropParameters, site: SiteConditions
-) -> tuple[ScoredFactor, list[str], list[str]]:
+) -> tuple[ScoredFactor, list[str], list[str], tuple[Reason, ...]]:
     strengths: list[str] = []
     considerations: list[str] = []
 
@@ -273,6 +350,7 @@ def _water_component(
             unknown_factor("water_match", "Water availability", ["rainfall"]),
             strengths,
             considerations,
+            NO_REASONS,
         )
     if not crop.water_need_mm_season:
         return (
@@ -281,17 +359,29 @@ def _water_component(
             ),
             strengths,
             considerations,
+            NO_REASONS,
         )
+
+    params = _params(
+        seasonal_rainfall_mm=site.seasonal_rainfall_mm,
+        crop_water_need_mm_season=crop.water_need_mm_season,
+    )
 
     ratio = site.seasonal_rainfall_mm / crop.water_need_mm_season
     score = clamp(100.0 - abs(1 - ratio) * WATER_PENALTY_PER_RATIO, MINIMUM_COMPONENT_SCORE, 100.0)
+    reasons: tuple[Reason, ...] = NO_REASONS
     if ratio < WATER_SHORTFALL_RATIO:
         considerations.append(
             f"Needs about {crop.water_need_mm_season:.0f} mm/season; observed rainfall is "
             f"around {site.seasonal_rainfall_mm:.0f} mm"
         )
+        reasons = (Reason(key=CROP_WATER_SHORTFALL, params=params),)
     elif ratio >= 1.0:
         strengths.append("Observed rainfall covers its seasonal water requirement")
+        reasons = (Reason(key=CROP_WATER_SUFFICIENT, params=params),)
+    # Between the shortfall threshold and parity the existing code says nothing — enough
+    # rain to be worth no warning, not enough to be worth a claim. The structured form
+    # mirrors that silence rather than inventing a verdict the prose declines to give.
 
     return (
         factor(
@@ -303,17 +393,27 @@ def _water_component(
         ),
         strengths,
         considerations,
+        reasons,
     )
 
 
 def score_crop(
     crop: CropParameters, site: SiteConditions
-) -> tuple[float | None, tuple[ScoredFactor, ...], tuple[str, ...], tuple[str, ...]]:
+) -> tuple[
+    float | None,
+    tuple[ScoredFactor, ...],
+    tuple[str, ...],
+    tuple[str, ...],
+    tuple[Reason, ...],
+]:
     """Suitability for one crop, or `None` when nothing about it could be assessed.
 
     The composite renormalises over the components that carried evidence, so a site
     with no soil survey is still ranked on climate rather than being scored against
     invented soil values.
+
+    Reasons are collected alongside the prose, in component order, so the structured and
+    written forms of the same finding always agree.
     """
     components = [
         _ph_component(crop, site),
@@ -325,14 +425,15 @@ def score_crop(
     factors = tuple(component[0] for component in components)
     strengths = tuple(s for component in components for s in component[1])
     considerations = tuple(c for component in components for c in component[2])
+    reasons = tuple(r for component in components for r in component[3])
 
     assessed = [f for f in factors if f.weight > 0]
     if not assessed:
-        return None, factors, strengths, considerations
+        return None, factors, strengths, considerations, reasons
 
     total_weight = sum(f.weight for f in assessed)
     composite = sum(f.score * f.weight for f in assessed) / total_weight
-    return composite, factors, strengths, considerations
+    return composite, factors, strengths, considerations, reasons
 
 
 def crop_recommendations(
@@ -347,16 +448,16 @@ def crop_recommendations(
     site = site_conditions(context)
     current_code = context.crop.code
 
-    scored: list[tuple[float, CropParameters, tuple, tuple, tuple]] = []
+    scored: list[tuple[float, CropParameters, tuple, tuple, tuple, tuple]] = []
     for crop in context.catalog:
         if not crop.code:
             continue
-        composite, factors, strengths, considerations = score_crop(crop, site)
+        composite, factors, strengths, considerations, reasons = score_crop(crop, site)
         if composite is None:
             # Nothing about this crop could be compared against this site. Ranking it
             # would be ordering by nothing.
             continue
-        scored.append((composite, crop, factors, strengths, considerations))
+        scored.append((composite, crop, factors, strengths, considerations, reasons))
 
     # Score descending, then code ascending, so ties never reorder between identical
     # requests and the ordering does not depend on catalog insertion order.
@@ -382,8 +483,9 @@ def crop_recommendations(
                 f"{crop.name or crop.code} scores {score:.0f}/100 against this farm's "
                 "soil and climate."
             ),
+            reasons=reasons,
         )
-        for index, (score, crop, factors, strengths, considerations) in enumerate(
+        for index, (score, crop, factors, strengths, considerations, reasons) in enumerate(
             scored[:limit], start=1
         )
     )

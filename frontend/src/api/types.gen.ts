@@ -615,6 +615,11 @@ export interface components {
              */
             rationale: string;
             /**
+             * Reasons
+             * @description The numbers `title`, `body` and `rationale` were formatted from, as data — so a client can restate this advisory in any language. Present only where the evidence reaches no other field: irrigation depth and the heat and cold thresholds. A disease advisory's evidence is on `disease_risk.risks[].reasons`, and a soil advisory's on `soil_assessment`, so neither is repeated here.
+             */
+            reasons?: components["schemas"]["ReasonCode"][];
+            /**
              * Title
              * @example Irrigate within 48 hours
              */
@@ -1117,6 +1122,11 @@ export interface components {
              * @description Narrative over the computed suitability.
              */
             rationale: string;
+            /**
+             * Reasons
+             * @description The numbers `strengths` and `considerations` were formatted from, as data — one per assessed component, so a client can state why this crop suits the site in any language. Empty for a component that could not be assessed; `factors` already reports which evidence was missing.
+             */
+            reasons?: components["schemas"]["ReasonCode"][];
             season?: components["schemas"]["Season"] | null;
             /**
              * Strengths
@@ -1297,6 +1307,11 @@ export interface components {
              * @description Rule-derived likelihood under current conditions.
              */
             probability: number;
+            /**
+             * Reasons
+             * @description The same evidence as `triggering_conditions`, as data rather than prose — one entry per matched rule clause. Lets a client state why this pathogen was flagged in any language. Empty when no rule matched.
+             */
+            reasons?: components["schemas"]["ReasonCode"][];
             /** Scouting Advice */
             scouting_advice?: string | null;
             /**
@@ -1899,6 +1914,46 @@ export interface components {
             timestamp: string;
             /** Version */
             version: string;
+        };
+        /**
+         * ReasonCode
+         * @description Machine-readable evidence behind a computed finding.
+         *
+         *     Every prose field in this contract is assembled from numbers the engine holds and
+         *     then discards, which leaves a client two bad options: parse the sentence, or
+         *     re-derive the agronomy. An assistant answering in Hindi or Arabic can do neither
+         *     honestly.
+         *
+         *     `key` names which condition was met, from a stable vocabulary; `params` carries the
+         *     values that met it. A client maps the key to a phrase in its own language and
+         *     interpolates — translation over data, not over generated sentences.
+         *
+         *     A reason never states more than its prose sibling already does. It is the same
+         *     evidence in a different form, so the two cannot disagree without one being wrong.
+         *
+         *     **Keys are a public vocabulary.** Once a client binds `disease.consecutive_hours_met`
+         *     to a translated phrase, renaming it breaks that translation in every language. Add
+         *     freely; rename never.
+         */
+        ReasonCode: {
+            /**
+             * Key
+             * @description Stable dotted key, `domain.condition`.
+             * @example disease.consecutive_hours_met
+             */
+            key: string;
+            /**
+             * Params
+             * @description Values that satisfied the condition. Scalars only.
+             * @example {
+             *       "matched_hours": 20,
+             *       "required_hours": 10,
+             *       "rule_id": "late_blight"
+             *     }
+             */
+            params?: {
+                [key: string]: number | string | null;
+            };
         };
         /**
          * RegenerativeRecommendation

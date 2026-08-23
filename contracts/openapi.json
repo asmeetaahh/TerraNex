@@ -1231,6 +1231,14 @@
             "title": "Rationale",
             "type": "string"
           },
+          "reasons": {
+            "description": "The numbers `strengths` and `considerations` were formatted from, as data \u2014 one per assessed component, so a client can state why this crop suits the site in any language. Empty for a component that could not be assessed; `factors` already reports which evidence was missing.",
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
           "season": {
             "anyOf": [
               {

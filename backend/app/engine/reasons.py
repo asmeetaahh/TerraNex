@@ -107,3 +107,42 @@ WEATHER_COLD_THRESHOLD_EXCEEDED: Final = "weather.cold_threshold_exceeded"
 Distinct from the heat key even though both advisories carry `category: "weather"` —
 which is why a consumer cannot currently tell the two apart.
 """
+
+
+# --------------------------------------------------------------------------
+# Crop suitability
+#
+# One pair per scoring component, matching the four `ScoredFactor` keys the recommender
+# already publishes — `ph_match`, `temperature_match`, `texture_match`, `water_match`.
+# Splitting each into a met/unmet key is what lets a consumer say *whether* the crop
+# suits the site without reading an English sentence to find out; `factors[].score`
+# gives the magnitude, and these give the direction and the numbers behind it.
+#
+# The values were formatted into `strengths` and `considerations` and then discarded:
+# `"Prefers pH 5.5-7.0; farm reads 5.8"` is the only carrier of three measurements the
+# item does not otherwise publish.
+# --------------------------------------------------------------------------
+
+CROP_PH_WITHIN_RANGE: Final = "crop.ph_within_range"
+"""The farm's soil pH falls inside the crop's tolerated band."""
+
+CROP_PH_OUTSIDE_RANGE: Final = "crop.ph_outside_range"
+"""The farm's soil pH sits outside the crop's tolerated band."""
+
+CROP_TEMPERATURE_OPTIMAL: Final = "crop.temperature_optimal"
+"""Mean temperature falls inside the crop's optimal band."""
+
+CROP_TEMPERATURE_OUTSIDE: Final = "crop.temperature_outside"
+"""Mean temperature sits outside the crop's optimal band."""
+
+CROP_TEXTURE_MATCH: Final = "crop.texture_match"
+"""The farm's soil texture is one the crop prefers."""
+
+CROP_TEXTURE_MISMATCH: Final = "crop.texture_mismatch"
+"""The farm's soil texture is not among the crop's preferred textures."""
+
+CROP_WATER_SUFFICIENT: Final = "crop.water_sufficient"
+"""Seasonal rainfall meets the crop's water requirement."""
+
+CROP_WATER_SHORTFALL: Final = "crop.water_shortfall"
+"""Seasonal rainfall falls short of the crop's water requirement."""

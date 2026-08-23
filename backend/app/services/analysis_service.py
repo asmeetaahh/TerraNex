@@ -467,6 +467,11 @@ def _to_crop_recommendation(suggestion: CropSuggestion) -> CropRecommendation:
         considerations=list(suggestion.considerations),
         factors=list(suggestion.factors),
         rationale=suggestion.rationale,
+        # Carried verbatim. The engine decided what the evidence is; this boundary
+        # changes its shape, never its content.
+        reasons=[
+            ReasonCode(key=reason.key, params=dict(reason.params)) for reason in suggestion.reasons
+        ],
     )
 
 
