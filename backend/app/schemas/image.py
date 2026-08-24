@@ -20,8 +20,8 @@ from app.schemas.enums import AIMode, ImageAnalysisStatus, Severity
 class DifferentialItem(BaseModel):
     """An alternative explanation the model considered."""
 
-    condition: str = Field(examples=["early_blight"])
-    condition_label: str = Field(examples=["Early blight"])
+    condition: str
+    condition_label: str
     likelihood: float = Field(ge=0, le=1)
     distinguishing_features: str | None = Field(
         default=None,
@@ -32,12 +32,10 @@ class DifferentialItem(BaseModel):
 class TreatmentOption(BaseModel):
     """One treatment path, with enough context to choose between them."""
 
-    name: str = Field(examples=["Copper-based fungicide"])
-    approach: str = Field(
-        description="Broad category.", examples=["organic", "chemical", "cultural"]
-    )
+    name: str
+    approach: str = Field(description="Broad category.")
     description: str
-    timing: str | None = Field(default=None, examples=["Apply at first sign, repeat in 7 days"])
+    timing: str | None = None
     precautions: str | None = None
 
 
@@ -50,12 +48,11 @@ class CropImageAnalysis(BaseModel):
             "All other fields are then unreliable."
         )
     )
-    crop_identified: str | None = Field(default=None, examples=["potato"])
+    crop_identified: str | None = None
     condition: str = Field(
-        description="Machine key for the primary finding.",
-        examples=["late_blight", "healthy"],
+    description="Machine key for the primary finding.",
     )
-    condition_label: str = Field(examples=["Late blight"])
+    condition_label: str
     severity: Severity
     confidence: float = Field(ge=0, le=1)
     affected_area_pct: float | None = Field(default=None, ge=0, le=100)

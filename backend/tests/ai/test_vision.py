@@ -20,6 +20,7 @@ import pytest
 from google.genai import errors as genai_errors
 
 from app.ai import gemini, vision
+from app.schemas.image import CropImageAnalysis
 from app.providers.base import ProviderResult
 from app.schemas.common import DataMode
 
@@ -156,6 +157,26 @@ async def test_the_image_and_schema_are_both_sent(monkeypatch) -> None:
     assert call["config"].response_mime_type == "application/json"
     assert call["config"].response_schema is not None, "structured output, not prose"
 
+def test_crop_image_analysis_schema_is_gemini_compatible() -> None:
+    """Gemini structured output must accept the diagnosis schema.
+
+    The Gemini SDK rejects unsupported JSON Schema metadata such as `examples`.
+    This test prevents that compatibility regression without making a network call.
+    """
+    import json
+    from google.genai import types
+
+    schema = CropImageAnalysis.model_json_schema()
+
+    assert "examples" not in json.dumps(schema)
+
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=CropImageAnalysis,
+    )
+
+    assert config.response_mime_type == "application/json"
+    assert config.response_schema is CropImageAnalysis
 
 async def test_an_unknown_mime_type_falls_back_to_jpeg(monkeypatch) -> None:
     """Upload validated magic bytes and `_downscale` re-encodes, so a stored image is a
